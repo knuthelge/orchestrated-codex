@@ -1,61 +1,126 @@
 ---
 name: orchestrated-delivery
-description: Deliver software changes through an adaptive workflow of task classification, codebase discovery, requirements and technical design, implementation, testing, UI verification, and final review. Use for feature implementation, bug fixes, refactors, code or PR reviews, test-only work, documentation changes, or complex multi-step engineering tasks where Codex should coordinate specialized subagents and maintain clear acceptance criteria.
+description: Deliver software changes through an adaptive workflow of task classification, codebase discovery, requirements and technical design, independent plan review, implementation, testing, UI verification, and final review. Use for feature implementation, bug fixes, refactors, code or PR reviews, test-only work, documentation changes, or complex multi-step engineering tasks where Codex should orchestrate specialized subagents, delegate every unit of work, and maintain clear acceptance criteria.
 ---
 
 # Orchestrated delivery
 
-Lead the work from the primary thread. Use subagents to isolate specialized or independently useful work, not as mandatory ceremony. Keep user intent and final responsibility in the primary thread.
+## Doctrine: orchestrate only
 
-## Classify the request
+The primary thread is the orchestrator. It plans, classifies the request, delegates
+every unit of work to a named subagent or the built-in `worker`, and verifies the
+results. It does not write production code, author tests, or perform the final review
+itself — each of those is delegated.
 
-Choose the lightest sufficient route:
+This is instruction-based doctrine, applied best effort. Codex provides no primitive
+that structurally prevents the primary thread from implementing, so treat this mandate
+as strongly as if it were enforced: when work needs doing, route it to a subagent rather
+than doing it inline. Keep user intent and final responsibility in the primary thread.
 
-- `trivial`: make the obvious scoped change, then verify it.
-- `bug-fix`: diagnose the execution path, implement the smallest root-cause fix, then verify it.
-- `review`: inspect and report findings; do not modify unless explicitly requested.
-- `test-only`: add or repair tests without changing production behavior.
-- `docs`: update documentation, then verify accuracy, links, and formatting.
-- `standard`: use discovery, design, implementation, verification, and risk-based final review.
+## Task classification (first, always)
 
-Upgrade to `standard` when discovery reveals architectural choices, broad impact, or significant UI design decisions. Do not downgrade solely to save effort.
+Before any work, classify the request into exactly one route. When uncertain, default to
+`standard`. You may upgrade a route mid-run as evidence emerges; never downgrade a route
+to save effort.
 
-## Run the route
+- `trivial`: delegate the obvious scoped change to `worker`, then delegate validation to
+  `tester`; iterate implement/validate for a **maximum of 3 cycles**. Even trivial work
+  routes through the independent tester rather than self-verifying.
+- `bug-fix`: delegate to `discovery` when the path is unclear, delegate the smallest
+  root-cause fix to `worker`, then delegate validation to `tester`.
+- `review`: delegate to `final_reviewer` (or `discovery` for recon) to inspect and report;
+  do not modify anything unless explicitly requested.
+- `test-only`: delegate to `tester` to author or repair tests; make no production change.
+  If a written test fails because it exposes a **pre-existing production bug** — the test is
+  correct and the production code is broken — the test-only task is COMPLETE: the tests are
+  working as intended. Do not loop to "fix" a correct test. Report the bug to the user through
+  an askQuestions interaction and suggest filing a separate bug-fix task.
+- `docs`: delegate the documentation update to `worker`, then verify accuracy, links, and
+  formatting.
+- `standard`: run the full phased route below.
 
-### Discovery
+## Standard route (phase gating + loop limits)
 
-Delegate to the `discovery` custom agent when the relevant code path, conventions, impact, or version-specific behavior is not already clear. Provide the user request, repository scope, and specific questions. Ask for evidence, not solutions.
+Run the phases in order. Each phase gates the next; do not begin a phase until the prior
+phase's exit condition is met.
 
-Parallelize only independent read-only investigations. Do not spawn multiple agents to rediscover the same code.
+- **Phase 0 — Clarify.** Resolve blocking ambiguity through askQuestions before any work
+  begins. Do not guess past a decision that changes scope or architecture.
+- **Phase 1 — Discovery.** Delegate to `discovery` (read-only) to map the relevant code,
+  conventions, impact, and version-sensitive behavior. Parallelize only independent
+  read-only investigations; never spawn multiple agents to rediscover the same code.
+- **Phase 2 — Design.** Delegate to `spec_designer` to write the PRD, then delegate an
+  independent review to `rubber_duck`, which returns PASS or CONCERNS. Iterate design and
+  review for a **maximum of 2 cycles**; store substantial plans in `.agent-work/prd.md`
+  using [references/prd-template.md](references/prd-template.md). Once the plan is reviewed,
+  confirm it with the user through an askQuestions interaction that always offers a free-text
+  option. Do not begin implementation until the user confirms the plan.
+- **Phase 2.5 — UI.** Delegate to `ui_designer` when the change is UI-affected. Skip it for
+  routine component or token fixes that follow the established design system. When a visual
+  preview is produced, present it to the user through an askQuestions interaction with a
+  free-text option and obtain approval before proceeding to implementation.
+- **Phase 3 — Implementation.** For each todo item, delegate the change to `worker`, then
+  delegate validation to `tester`, which returns PASS or FAIL. Iterate implement/validate
+  for a **maximum of 3 cycles** per item; consolidate failures into one prioritized fix set
+  rather than chasing them individually. Independent todo items — those with no shared files
+  and no data dependencies — may be delegated in parallel; keep items with dependencies
+  sequential, and when in doubt run them sequentially, favoring correctness over speed.
+- **Phase 4 — Final review.** Delegate to `final_reviewer` for a **maximum of 3 cycles**.
+  Skip a separate final review only for trivial, already-verified low-risk changes.
+- **Phase 5 — Cleanup.** Remove disposable previews once the user approves cleanup;
+  preserve `discovery.md` and `prd.md` as durable project records.
 
-### Requirements and design
+## Never-stop / askQuestions contract
 
-For `standard` work, delegate to `spec_designer` after discovery. Store substantial plans in `.agent-work/prd.md` using [references/prd-template.md](references/prd-template.md). Keep small plans inline.
+Stopping is a failure state. Whenever a loop limit is breached, a subagent reports BLOCKED,
+or material ambiguity surfaces, route through an askQuestions interaction that always offers
+a free-text option, and then continue the work from the answer. Never end a turn on a
+plain-text question. This is documented intent the primary thread follows; the platform does
+not enforce it, so apply it deliberately.
 
-Require every behavior to be testable and every implementation step to have acceptance criteria. Have the designer adversarially review its own plan. Ask the user to approve only when the plan contains meaningful product, scope, architectural, destructive, or costly choices.
+## Per-subagent model routing
 
-For substantial visual design work, delegate to `ui_designer` after requirements stabilize. Skip it for routine UI fixes that follow established components and tokens.
+Agents pin their own models; this guidance explains the intent so delegation matches the
+work:
 
-### Implementation
+- `gpt-5.6` for demanding planning and holistic review (`spec_designer`, `rubber_duck`,
+  `final_reviewer`).
+- `gpt-5.6-terra` for read-heavy, UI, and test work (`ui_designer`, `tester`).
+- `gpt-5.6-luna` for narrow, fast reconnaissance (`discovery`).
 
-Implement cohesive changes in the primary thread or delegate bounded independent units to the built-in worker. Preserve unrelated user edits. Follow repository instructions and the approved plan, but adapt when the code provides contrary evidence and record the reason.
+## Structured subagent prompt contract
 
-Do not parallelize agents that would edit the same files or tightly coupled interfaces. Run formatting, linting, type checks, and focused tests during implementation.
+Every delegation carries the same structure so the subagent can act without rediscovering
+context:
 
-### Verification
+- **Task:** the single unit of work to perform.
+- **Acceptance Criteria:** the concrete, testable definition of done.
+- **UI Affected:** yes/no, with the affected routes or components.
+- **Docs Affected:** yes/no, split into user-facing versus dev-facing.
+- **Expected Output:** the exact report or artifact shape you expect back.
+- **Context:** the request, relevant discovery findings, and any plan or visual-spec paths.
+- **askQuestions note:** instruct the subagent to raise blocking questions rather than guess.
 
-Delegate independent validation to `verifier` for behavior changes. Provide the original request, acceptance criteria, changed-file scope, and any plan or visual-spec paths. Use [references/verification-template.md](references/verification-template.md) for expected reporting.
+Propagate the visual spec and the docs classification to `worker`, `tester`, and
+`final_reviewer` so downstream work honors the same user-facing versus dev-facing split.
 
-On failure, consolidate findings into one prioritized fix set. Apply root-cause fixes, then re-run the failed checks. After two unsuccessful correction cycles, reassess the approach and seek user input only when a missing decision prevents further safe progress.
+## Roster
 
-### Final review
+- `discovery` — read-only reconnaissance.
+- `spec_designer` — requirements and technical design (PRD).
+- `rubber_duck` — independent PRD peer review (PASS/CONCERNS).
+- `ui_designer` — visual specification for substantial UI work.
+- `tester` — authors and runs tests (PASS/FAIL).
+- `final_reviewer` — read-only holistic final gate.
 
-Delegate to `final_reviewer` for substantial, security-sensitive, cross-cutting, or explicitly requested work. Skip a separate final review for trivial and low-risk changes already independently verified.
-
-Do not declare completion until explicit requirements are met and relevant checks pass, or clearly disclose checks that could not run and why.
+Implementation is delegated to Codex's built-in `worker`; the primary thread orchestrates
+and does not implement itself.
 
 ## Maintain artifacts
 
-Use `.agent-work/` only when artifacts materially aid a multi-step task. Do not create workflow documents for trivial work. Preserve `discovery.md` and `prd.md` as useful project records; remove disposable previews when the user approves cleanup.
+Use `.agent-work/` only when artifacts materially aid a multi-step task. Do not create
+workflow documents for trivial work. Preserve `discovery.md` and `prd.md` as useful project
+records; remove disposable previews when the user approves cleanup.
 
-End with the outcome, changed files, verification evidence, and any residual risks or decisions.
+End with the outcome, changed files, verification evidence, and any residual risks or
+decisions.

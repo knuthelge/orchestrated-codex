@@ -15,15 +15,31 @@ from pathlib import Path
 
 RESOURCE_ROOT = Path(__file__).resolve().parent / "resources"
 MANIFEST_NAME = "codex-orchestrator-install.json"
-INSTALL_SOURCES = {
-    Path("skills/orchestrated-delivery"): RESOURCE_ROOT
-    / "skills/orchestrated-delivery",
+MANIFEST_VERSION = 2
+
+# Custom agents install under the Codex agents root (CODEX_HOME else ~/.codex).
+AGENT_SOURCES = {
     Path("agents/discovery.toml"): RESOURCE_ROOT / "agents/discovery.toml",
     Path("agents/spec-designer.toml"): RESOURCE_ROOT / "agents/spec-designer.toml",
+    Path("agents/rubber-duck.toml"): RESOURCE_ROOT / "agents/rubber-duck.toml",
     Path("agents/ui-designer.toml"): RESOURCE_ROOT / "agents/ui-designer.toml",
-    Path("agents/verifier.toml"): RESOURCE_ROOT / "agents/verifier.toml",
+    Path("agents/tester.toml"): RESOURCE_ROOT / "agents/tester.toml",
     Path("agents/final-reviewer.toml"): RESOURCE_ROOT / "agents/final-reviewer.toml",
 }
+# The skill installs under a documented Codex skills root anchored to $HOME.
+SKILL_SOURCES = {
+    Path("orchestrated-delivery"): RESOURCE_ROOT / "skills/orchestrated-delivery",
+}
+
+
+def resolve_agents_root() -> Path:
+    """Codex home hosting agents/*.toml: CODEX_HOME if set, else ~/.codex."""
+    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+
+
+def resolve_skill_root() -> Path:
+    """Documented Codex skills root, anchored to $HOME (not CODEX_HOME)."""
+    return Path.home() / ".agents" / "skills"
 
 
 def digest(path: Path) -> str:
@@ -34,17 +50,25 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def source_files() -> dict[Path, Path]:
+def _expand(base: Path, relative: Path, source: Path, files: dict[Path, Path]) -> None:
+    destination = base / relative
+    if source.is_dir():
+        for item in sorted(source.rglob("*")):
+            if item.is_file():
+                files[destination / item.relative_to(source)] = item
+    elif source.is_file():
+        files[destination] = source
+    else:
+        raise FileNotFoundError(f"Missing installation source: {source}")
+
+
+def source_files(agents_root: Path, skill_root: Path) -> dict[Path, Path]:
+    """Map absolute installed destinations to their resource sources across both roots."""
     files: dict[Path, Path] = {}
-    for destination, source in INSTALL_SOURCES.items():
-        if source.is_dir():
-            for item in sorted(source.rglob("*")):
-                if item.is_file():
-                    files[destination / item.relative_to(source)] = item
-        elif source.is_file():
-            files[destination] = source
-        else:
-            raise FileNotFoundError(f"Missing installation source: {source}")
+    for relative, source in AGENT_SOURCES.items():
+        _expand(agents_root, relative, source, files)
+    for relative, source in SKILL_SOURCES.items():
+        _expand(skill_root, relative, source, files)
     return files
 
 
@@ -58,6 +82,20 @@ def load_manifest(path: Path) -> dict[str, object] | None:
     if data.get("installer") != "codex-orchestrator":
         raise RuntimeError(f"Refusing to use an unrecognized manifest: {path}")
     return data
+
+
+def resolve_recorded_path(key: str, agents_root: Path) -> Path:
+    """Resolve a manifest key to an absolute path.
+
+    Version 2 manifests record absolute paths. Legacy (version 1) manifests recorded
+    paths relative to the Codex home, so those resolve against the agents root.
+    """
+    recorded = Path(key)
+    if recorded.is_absolute():
+        return recorded
+    if ".." in recorded.parts:
+        raise RuntimeError(f"Unsafe path in manifest: {key}")
+    return agents_root / recorded
 
 
 def atomic_copy(source: Path, destination: Path) -> None:
@@ -86,21 +124,42 @@ def write_manifest(path: Path, data: dict[str, object]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def install(codex_root: Path) -> int:
-    manifest_path = codex_root / MANIFEST_NAME
+def remove_empty_parents(path: Path, roots: Sequence[Path]) -> None:
+    current = path
+    while True:
+        if current in roots:
+            return
+        if not any(root in current.parents for root in roots):
+            return
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
+
+
+def install(agents_root: Path, skill_root: Path) -> int:
+    manifest_path = agents_root / MANIFEST_NAME
     previous = load_manifest(manifest_path)
     previous_files = previous.get("files", {}) if previous else {}
     if not isinstance(previous_files, dict):
         raise RuntimeError(f"Invalid files section in {manifest_path}")
 
-    files = source_files()
+    recorded_hashes: dict[Path, str] = {}
+    for key, recorded in previous_files.items():
+        if not isinstance(key, str) or not isinstance(recorded, str):
+            raise RuntimeError(f"Invalid file entry in {manifest_path}")
+        recorded_hashes[resolve_recorded_path(key, agents_root)] = recorded
+
+    files = source_files(agents_root, skill_root)
+    roots = [agents_root, skill_root]
+
     conflicts: list[Path] = []
-    for relative, source in files.items():
-        destination = codex_root / relative
+    for destination, source in files.items():
         if not destination.exists():
             continue
-        recorded = previous_files.get(relative.as_posix())
-        if not isinstance(recorded, str) or digest(destination) != recorded:
+        recorded = recorded_hashes.get(destination)
+        if recorded is None or digest(destination) != recorded:
             if digest(destination) != digest(source):
                 conflicts.append(destination)
 
@@ -110,34 +169,28 @@ def install(codex_root: Path) -> int:
             print(f"  {conflict}")
         return 2
 
-    current_paths = {relative.as_posix() for relative in files}
-    obsolete = set(previous_files) - current_paths
+    current_paths = set(files)
+    obsolete = set(recorded_hashes) - current_paths
     preserved_obsolete: list[Path] = []
-    for relative_text in sorted(obsolete):
-        recorded = previous_files[relative_text]
-        relative = Path(relative_text)
-        if relative.is_absolute() or ".." in relative.parts or not isinstance(recorded, str):
-            raise RuntimeError(f"Unsafe or invalid path in {manifest_path}: {relative_text}")
-        destination = codex_root / relative
+    for destination in sorted(obsolete, key=str):
         if not destination.exists():
             continue
-        if destination.is_file() and digest(destination) == recorded:
+        if destination.is_file() and digest(destination) == recorded_hashes[destination]:
             destination.unlink()
-            remove_empty_parents(destination.parent, codex_root)
+            remove_empty_parents(destination.parent, roots)
             print(f"removed obsolete {destination}")
         else:
             preserved_obsolete.append(destination)
 
     installed: dict[str, str] = {}
-    for relative, source in files.items():
-        destination = codex_root / relative
+    for destination, source in files.items():
         atomic_copy(source, destination)
-        installed[relative.as_posix()] = digest(destination)
+        installed[destination.as_posix()] = digest(destination)
         print(f"installed {destination}")
 
     write_manifest(
         manifest_path,
-        {"installer": "codex-orchestrator", "version": 1, "files": installed},
+        {"installer": "codex-orchestrator", "version": MANIFEST_VERSION, "files": installed},
     )
     if preserved_obsolete:
         print("Preserved locally modified files that are no longer distributed:")
@@ -147,18 +200,8 @@ def install(codex_root: Path) -> int:
     return 0
 
 
-def remove_empty_parents(path: Path, stop: Path) -> None:
-    current = path
-    while current != stop and stop in current.parents:
-        try:
-            current.rmdir()
-        except OSError:
-            return
-        current = current.parent
-
-
-def uninstall(codex_root: Path) -> int:
-    manifest_path = codex_root / MANIFEST_NAME
+def uninstall(agents_root: Path, skill_root: Path) -> int:
+    manifest_path = agents_root / MANIFEST_NAME
     manifest = load_manifest(manifest_path)
     if manifest is None:
         print(f"Nothing to uninstall; manifest not found: {manifest_path}")
@@ -167,14 +210,15 @@ def uninstall(codex_root: Path) -> int:
     if not isinstance(installed, dict):
         raise RuntimeError(f"Invalid files section in {manifest_path}")
 
-    preserved: list[Path] = []
-    for relative_text, recorded in sorted(installed.items(), reverse=True):
-        if not isinstance(relative_text, str) or not isinstance(recorded, str):
+    roots = [agents_root, skill_root]
+    entries: list[tuple[Path, str]] = []
+    for key, recorded in installed.items():
+        if not isinstance(key, str) or not isinstance(recorded, str):
             raise RuntimeError(f"Invalid file entry in {manifest_path}")
-        relative = Path(relative_text)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise RuntimeError(f"Unsafe path in {manifest_path}: {relative}")
-        destination = codex_root / relative
+        entries.append((resolve_recorded_path(key, agents_root), recorded))
+
+    preserved: list[Path] = []
+    for destination, recorded in sorted(entries, key=lambda item: str(item[0]), reverse=True):
         if not destination.exists():
             continue
         if not destination.is_file() or digest(destination) != recorded:
@@ -182,7 +226,7 @@ def uninstall(codex_root: Path) -> int:
             continue
         destination.unlink()
         print(f"removed {destination}")
-        remove_empty_parents(destination.parent, codex_root)
+        remove_empty_parents(destination.parent, roots)
 
     if preserved:
         print("Preserved locally modified installed files:")
@@ -201,21 +245,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--install", action="store_true", help="Install or update owned files.")
     action.add_argument("--uninstall", action="store_true", help="Remove unchanged installed files.")
-    default_root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    default_root = resolve_agents_root()
     parser.add_argument(
         "--codex-home",
         type=Path,
         default=default_root,
-        help=f"Codex home directory (default: {default_root}).",
+        help=f"Codex home directory for agents (default: {default_root}).",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parse_args(argv)
-    codex_root = arguments.codex_home.expanduser().resolve()
+    agents_root = arguments.codex_home.expanduser().resolve()
+    skill_root = resolve_skill_root().expanduser().resolve()
     try:
-        return install(codex_root) if arguments.install else uninstall(codex_root)
+        if arguments.install:
+            return install(agents_root, skill_root)
+        return uninstall(agents_root, skill_root)
     except (OSError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
