@@ -1,5 +1,9 @@
 # Verification report template
 
+A report is well-formed only when it opens with the `PASS`/`FAIL` verdict and carries every
+required field below — the requirement-by-requirement evidence, checks, and findings. The
+orchestrator reprompts only when a required field is missing, not on a well-formed FAIL.
+
 ```markdown
 ## Verification: PASS | FAIL
 

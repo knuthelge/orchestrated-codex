@@ -5,7 +5,9 @@ orchestration skill and focused custom agents so Codex follows a structured proc
 for discovery, planning, independent plan review, implementation, testing, and final
 review. The skill instructs the primary Codex thread to orchestrate only — classify the
 request, delegate every unit of work to a named subagent or the built-in `worker`, and
-verify the result.
+verify the result. The orchestrator hands each subagent a scoped digest of the plan and a
+discovery impact map so work proceeds without re-reading whole artifacts, keeping runs fast
+and cheap under the same phased contract.
 
 ## Install from source
 

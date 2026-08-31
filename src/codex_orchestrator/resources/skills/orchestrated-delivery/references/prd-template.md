@@ -32,6 +32,10 @@
 ### Implementation steps
 1. <bounded step> — Acceptance: <specific evidence>
 
+### Hand-off digest
+- REQ-1: <=40-line self-contained slice — target requirement, its acceptance criteria, and
+  the files/interfaces it touches — the orchestrator lifts for each worker/tester hand-off.
+
 ### Edge cases and failure behavior
 - <case>: <handling>
 
