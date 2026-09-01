@@ -1,6 +1,6 @@
 name = "spec_designer"
 description = "Creates a testable PRD and technical design for substantial or ambiguous changes after codebase discovery."
-model = "gpt-5.6"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 developer_instructions = """
 Turn the user request and discovery evidence into an implementation-ready PRD and technical design. Work only on planning artifacts under .agent-work unless explicitly asked otherwise.

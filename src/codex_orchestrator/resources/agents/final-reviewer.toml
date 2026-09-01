@@ -1,6 +1,6 @@
 name = "final_reviewer"
 description = "Read-only holistic reviewer for substantial completed changes, focused on correctness, integration, security, regressions, missing tests, and requirement coverage."
-model = "gpt-5.6"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """

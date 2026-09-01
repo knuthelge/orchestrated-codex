@@ -15,7 +15,14 @@ from pathlib import Path
 from codex_orchestrator import cli
 
 
-ALLOWED_MODELS = {"gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"}
+EXPECTED_MODELS = {
+    "discovery": "gpt-5.6-luna",
+    "final_reviewer": "gpt-5.6-sol",
+    "rubber_duck": "gpt-5.6-sol",
+    "spec_designer": "gpt-5.6-sol",
+    "tester": "gpt-5.6-terra",
+    "ui_designer": "gpt-5.6-terra",
+}
 READ_ONLY_AGENTS = {"discovery", "final_reviewer", "rubber_duck"}
 WRITE_AGENTS = {"spec_designer", "ui_designer", "tester"}
 AGENTS_DIR = cli.RESOURCE_ROOT / "agents"
@@ -56,16 +63,12 @@ class AgentPayloadTests(unittest.TestCase):
         )
         self.assertNotIn("verifier.toml", names)
 
-    def test_no_undocumented_model(self) -> None:  # SC-3
+    def test_agent_model_routing(self) -> None:  # SC-3
+        actual = {}
         for path in agent_toml_paths():
             data = tomllib.loads(path.read_text(encoding="utf-8"))
-            model = data.get("model")
-            self.assertIn(model, ALLOWED_MODELS, f"{path.name} uses model {model!r}")
-            self.assertNotEqual(model, "gpt-5.6-sol")
-
-    def test_no_sol_string_in_any_toml(self) -> None:  # SC-3
-        for path in agent_toml_paths():
-            self.assertNotIn("gpt-5.6-sol", path.read_text(encoding="utf-8"))
+            actual[data["name"]] = data.get("model")
+        self.assertEqual(actual, EXPECTED_MODELS)
 
     def test_schema_and_sandbox_mode(self) -> None:  # SC-4
         for path in agent_toml_paths():
@@ -137,8 +140,13 @@ class SkillPayloadTests(unittest.TestCase):
         self.assertIn("worker", self.body)
 
     def test_body_contains_model_routing(self) -> None:  # SC-7
-        for model in ("gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"):
+        for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
             self.assertIn(model, self.body)
+        self.assertNotRegex(
+            self.body,
+            r"(?<![-.\w])gpt-5\.6(?![-.\w])",
+            "model-routing guidance must not name the unsupported unsuffixed gpt-5.6 model",
+        )
 
     def test_body_contains_prompt_contract(self) -> None:  # SC-7
         for field in ("Acceptance Criteria", "UI Affected", "Docs Affected", "Expected Output"):

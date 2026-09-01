@@ -104,14 +104,14 @@ askQuestions escalation still fires on a limit breach.
 Agents pin their own models; this guidance explains the intent so delegation matches the
 work:
 
-- `gpt-5.6` for demanding planning and holistic review (`spec_designer`, `rubber_duck`,
+- `gpt-5.6-sol` for demanding planning and holistic review (`spec_designer`, `rubber_duck`,
   `final_reviewer`).
 - `gpt-5.6-terra` for read-heavy, UI, and test work (`ui_designer`, `tester`).
 - `gpt-5.6-luna` for narrow, fast reconnaissance (`discovery`).
 
 As guidance (not a per-agent hook): the `tester`'s read-heavy first pass therefore lands on
 the cheaper `gpt-5.6-terra` tier, and escalation to a top-tier re-check on a FAIL is an
-orchestrator-driven re-spawn rather than an in-agent switch. `rubber_duck` stays on `gpt-5.6`
+orchestrator-driven re-spawn rather than an in-agent switch. `rubber_duck` stays on `gpt-5.6-sol`
 to keep the review gate at the top tier.
 
 ## Structured subagent prompt contract
