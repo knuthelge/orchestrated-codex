@@ -94,6 +94,155 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(destination.read_text(encoding="utf-8"), "locally modified")
         self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
 
+    def test_uninstall_rejects_matching_absolute_path_outside_installation_roots(self) -> None:
+        victim = self.agents_root.parent / "unrelated-file"
+        victim.write_text("do not delete", encoding="utf-8")
+        (self.agents_root / cli.MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "installer": "codex-orchestrator",
+                    "version": 2,
+                    "files": {victim.as_posix(): hashlib.sha256(victim.read_bytes()).hexdigest()},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "outside installation roots"):
+            cli.uninstall(self.agents_root, self.skill_root)
+
+        self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
+        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+
+    def test_reinstall_rejects_matching_absolute_obsolete_path_outside_roots(self) -> None:
+        victim = self.agents_root.parent / "obsolete-unrelated-file"
+        victim.write_text("do not delete", encoding="utf-8")
+        (self.agents_root / cli.MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "installer": "codex-orchestrator",
+                    "version": 2,
+                    "files": {victim.as_posix(): hashlib.sha256(victim.read_bytes()).hexdigest()},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "outside installation roots"):
+            cli.install(self.agents_root, self.skill_root)
+
+        self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
+        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+
+    def test_uninstall_supports_current_absolute_entries_under_both_roots(self) -> None:
+        agent_file = self.agents_root / "agents" / "owned.toml"
+        skill_file = self.skill_root / "owned-skill" / "SKILL.md"
+        agent_file.parent.mkdir(parents=True)
+        skill_file.parent.mkdir(parents=True)
+        agent_file.write_text("owned agent", encoding="utf-8")
+        skill_file.write_text("owned skill", encoding="utf-8")
+        (self.agents_root / cli.MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "installer": "codex-orchestrator",
+                    "version": 2,
+                    "files": {
+                        agent_file.as_posix(): hashlib.sha256(agent_file.read_bytes()).hexdigest(),
+                        skill_file.as_posix(): hashlib.sha256(skill_file.read_bytes()).hexdigest(),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(cli.uninstall(self.agents_root, self.skill_root), 0)
+
+        self.assertFalse(agent_file.exists())
+        self.assertFalse(skill_file.exists())
+        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+
+    def test_uninstall_rejects_relative_traversal_and_prefix_confusion(self) -> None:
+        traversal_victim = self.agents_root.parent / "traversal-victim"
+        prefix_victim = self.agents_root.parent / f"{self.agents_root.name}-other" / "victim"
+        traversal_victim.write_text("do not delete", encoding="utf-8")
+        prefix_victim.parent.mkdir()
+        prefix_victim.write_text("do not delete", encoding="utf-8")
+
+        for key, victim in (
+            ("../traversal-victim", traversal_victim),
+            (prefix_victim.as_posix(), prefix_victim),
+        ):
+            with self.subTest(key=key):
+                (self.agents_root / cli.MANIFEST_NAME).write_text(
+                    json.dumps(
+                        {
+                            "installer": "codex-orchestrator",
+                            "version": 2,
+                            "files": {
+                                key: hashlib.sha256(victim.read_bytes()).hexdigest()
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(RuntimeError, "Unsafe path|outside installation roots"):
+                    cli.uninstall(self.agents_root, self.skill_root)
+
+                self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
+                self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+
+    def test_uninstall_rejects_path_escaping_via_symlinked_parent(self) -> None:
+        outside_directory = self.agents_root.parent / "outside"
+        victim = outside_directory / "victim"
+        outside_directory.mkdir()
+        victim.write_text("do not delete", encoding="utf-8")
+        link = self.agents_root / "linked-agents"
+        link.symlink_to(outside_directory, target_is_directory=True)
+        escaped_path = link / victim.name
+        (self.agents_root / cli.MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "installer": "codex-orchestrator",
+                    "version": 2,
+                    "files": {
+                        escaped_path.as_posix(): hashlib.sha256(victim.read_bytes()).hexdigest()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "outside installation roots"):
+            cli.uninstall(self.agents_root, self.skill_root)
+
+        self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
+        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+
+    def test_uninstall_supports_legacy_relative_entry_under_agents_root(self) -> None:
+        owned_file = self.agents_root / "agents" / "legacy-owned.toml"
+        owned_file.parent.mkdir(parents=True)
+        owned_file.write_text("legacy owned", encoding="utf-8")
+        (self.agents_root / cli.MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "installer": "codex-orchestrator",
+                    "version": 1,
+                    "files": {
+                        "agents/legacy-owned.toml": hashlib.sha256(
+                            owned_file.read_bytes()
+                        ).hexdigest()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(cli.uninstall(self.agents_root, self.skill_root), 0)
+
+        self.assertFalse(owned_file.exists())
+        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+
     def test_reinstall_removes_unchanged_obsolete_file(self) -> None:
         obsolete = self.agents_root / "agents" / "obsolete.toml"
         obsolete.parent.mkdir(parents=True)

@@ -84,18 +84,27 @@ def load_manifest(path: Path) -> dict[str, object] | None:
     return data
 
 
-def resolve_recorded_path(key: str, agents_root: Path) -> Path:
+def resolve_recorded_path(key: str, agents_root: Path, skill_root: Path) -> Path:
     """Resolve a manifest key to an absolute path.
 
     Version 2 manifests record absolute paths. Legacy (version 1) manifests recorded
-    paths relative to the Codex home, so those resolve against the agents root.
+    paths relative to the Codex home, so those resolve against the agents root. A
+    manifest path is usable only when its canonical location remains below one of
+    the two installation roots.
     """
     recorded = Path(key)
     if recorded.is_absolute():
-        return recorded
-    if ".." in recorded.parts:
-        raise RuntimeError(f"Unsafe path in manifest: {key}")
-    return agents_root / recorded
+        destination = recorded
+    else:
+        if ".." in recorded.parts:
+            raise RuntimeError(f"Unsafe path in manifest: {key}")
+        destination = agents_root / recorded
+
+    resolved_destination = destination.resolve()
+    resolved_roots = (agents_root.resolve(), skill_root.resolve())
+    if not any(resolved_destination.is_relative_to(root) for root in resolved_roots):
+        raise RuntimeError(f"Path outside installation roots in manifest: {key}")
+    return destination
 
 
 def atomic_copy(source: Path, destination: Path) -> None:
@@ -149,7 +158,7 @@ def install(agents_root: Path, skill_root: Path) -> int:
     for key, recorded in previous_files.items():
         if not isinstance(key, str) or not isinstance(recorded, str):
             raise RuntimeError(f"Invalid file entry in {manifest_path}")
-        recorded_hashes[resolve_recorded_path(key, agents_root)] = recorded
+        recorded_hashes[resolve_recorded_path(key, agents_root, skill_root)] = recorded
 
     files = source_files(agents_root, skill_root)
     roots = [agents_root, skill_root]
@@ -215,7 +224,7 @@ def uninstall(agents_root: Path, skill_root: Path) -> int:
     for key, recorded in installed.items():
         if not isinstance(key, str) or not isinstance(recorded, str):
             raise RuntimeError(f"Invalid file entry in {manifest_path}")
-        entries.append((resolve_recorded_path(key, agents_root), recorded))
+        entries.append((resolve_recorded_path(key, agents_root, skill_root), recorded))
 
     preserved: list[Path] = []
     for destination, recorded in sorted(entries, key=lambda item: str(item[0]), reverse=True):
