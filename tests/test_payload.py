@@ -27,6 +27,9 @@ READ_ONLY_AGENTS = {"discovery", "final_reviewer", "rubber_duck"}
 WRITE_AGENTS = {"spec_designer", "ui_designer", "tester"}
 AGENTS_DIR = cli.RESOURCE_ROOT / "agents"
 SKILL_MD = cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "SKILL.md"
+SKILL_OPENAI_YAML = (
+    cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "agents" / "openai.yaml"
+)
 
 
 def agent_toml_paths() -> list[Path]:
@@ -117,6 +120,10 @@ class SkillPayloadTests(unittest.TestCase):
     def test_frontmatter(self) -> None:  # SC-5
         self.assertEqual(self.frontmatter.get("name"), "orchestrated-delivery")
         self.assertTrue(self.frontmatter.get("description"))
+
+    def test_explicit_invocation_only(self) -> None:
+        metadata = SKILL_OPENAI_YAML.read_text(encoding="utf-8")
+        self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
 
     def test_body_contains_routes(self) -> None:  # SC-5 / SC-7
         for route in ("trivial", "bug-fix", "review", "test-only", "docs", "standard"):

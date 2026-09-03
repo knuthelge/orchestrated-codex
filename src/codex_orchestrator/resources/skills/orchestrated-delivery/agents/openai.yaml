@@ -2,3 +2,6 @@ interface:
   display_name: "Orchestrated Delivery"
   short_description: "Plan, implement, verify, and review code changes"
   default_prompt: "Use $orchestrated-delivery to deliver this task through the appropriate planning, implementation, and verification workflow."
+
+policy:
+  allow_implicit_invocation: false

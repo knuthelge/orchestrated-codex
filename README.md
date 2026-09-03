@@ -25,9 +25,9 @@ cd orchestrated-codex
 uv run main.py --install
 ```
 
-Restart Codex or start a new conversation after installation. Invoke the workflow
-explicitly with `$orchestrated-delivery`, or let Codex select it when a request matches
-its description.
+Restart Codex or start a new conversation after installation. To use the workflow,
+invoke it explicitly with `$orchestrated-delivery`; Codex will not select it
+automatically based on the request.
 
 The installer writes to two independent roots:
 
