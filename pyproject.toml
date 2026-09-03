@@ -1,11 +1,11 @@
 [build-system]
-requires = ["uv_build>=0.11.19,<0.12.0"]
+requires = ["uv_build>=0.12.9,<0.13"]
 build-backend = "uv_build"
 
 [project]
-name = "codex-orchestrator"
+name = "orchestrated-codex"
 version = "0.1.0"
-description = "Install and remove the CodexOrchestrator skill and custom agents."
+description = "Install an orchestrated Codex delivery skill and focused custom agents."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [project.scripts]
-codex-orchestrator = "codex_orchestrator.cli:main"
+orchestrated-codex = "codex_orchestrator.cli:main"
 
 [tool.uv.build-backend]
 module-name = "codex_orchestrator"

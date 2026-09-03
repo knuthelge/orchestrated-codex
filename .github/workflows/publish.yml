@@ -1,0 +1,154 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    if: github.event.created == true && github.event.deleted == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Python and uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.11"
+          version: "0.12.9"
+          enable-cache: false
+
+      - name: Verify the release version
+        run: |
+          uv run --locked python - <<'PY'
+          import ast
+          import os
+          from pathlib import Path
+          import re
+          import tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          match = re.fullmatch(r"v([0-9]+\.[0-9]+\.[0-9]+)", tag)
+          if match is None:
+              raise SystemExit(f"invalid release tag: {tag!r}; expected vX.Y.Z")
+          tag_version = match.group(1)
+
+          with Path("pyproject.toml").open("rb") as file:
+              project_version = tomllib.load(file)["project"]["version"]
+
+          tree = ast.parse(
+              Path("src/codex_orchestrator/__init__.py").read_text(),
+              filename="src/codex_orchestrator/__init__.py",
+          )
+          module_versions = []
+          for node in tree.body:
+              if not isinstance(node, ast.Assign):
+                  continue
+              if any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets):
+                  if not isinstance(node.value, ast.Constant) or not isinstance(node.value.value, str):
+                      raise SystemExit("module __version__ must be a string literal")
+                  module_versions.append(node.value.value)
+          if len(module_versions) != 1:
+              raise SystemExit("expected exactly one literal module __version__ assignment")
+          module_version = module_versions[0]
+
+          if tag_version != project_version or tag_version != module_version:
+              raise SystemExit(
+                  "release version mismatch: "
+                  f"tag={tag_version!r}, project={project_version!r}, module={module_version!r}"
+              )
+          print(f"release version verified: {tag_version}")
+          PY
+
+      - name: Run tests
+        run: uv run --locked python -m unittest discover -s tests
+
+      - name: Build distributions
+        run: |
+          uv build --no-sources
+          uv run --locked python -c 'from pathlib import Path; Path("dist/.gitignore").unlink(missing_ok=True)'
+
+      - name: Verify distribution artifacts
+        id: distributions
+        run: |
+          uv run --locked python - <<'PY'
+          import os
+          from pathlib import Path
+
+          files = sorted(path for path in Path("dist").iterdir() if path.is_file())
+          wheels = [path for path in files if path.name.endswith(".whl")]
+          sdists = [path for path in files if path.name.endswith(".tar.gz")]
+          if len(files) != 2 or len(wheels) != 1 or len(sdists) != 1:
+              names = [path.name for path in files]
+              raise SystemExit(f"expected exactly one wheel and one source archive; found {names}")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"wheel={wheels[0]}\n")
+              output.write(f"sdist={sdists[0]}\n")
+          print(f"verified distributions: {wheels[0].name}, {sdists[0].name}")
+          PY
+
+      - name: Smoke test the wheel
+        env:
+          HOME: ${{ runner.temp }}/smoke-wheel/home
+          CODEX_HOME: ${{ runner.temp }}/smoke-wheel/codex-home
+          UV_CACHE_DIR: ${{ runner.temp }}/smoke-wheel/uv-cache
+          DISTRIBUTION: ${{ steps.distributions.outputs.wheel }}
+        run: |
+          mkdir -p "$HOME" "$CODEX_HOME"
+          uvx --from "$DISTRIBUTION" orchestrated-codex --install
+          test -f "$HOME/.agents/skills/orchestrated-delivery/SKILL.md"
+          test -f "$CODEX_HOME/agents/tester.toml"
+          uvx --from "$DISTRIBUTION" orchestrated-codex --uninstall
+          test ! -e "$HOME/.agents/skills/orchestrated-delivery/SKILL.md"
+          test ! -e "$CODEX_HOME/codex-orchestrator-install.json"
+
+      - name: Smoke test the source distribution
+        env:
+          HOME: ${{ runner.temp }}/smoke-sdist/home
+          CODEX_HOME: ${{ runner.temp }}/smoke-sdist/codex-home
+          UV_CACHE_DIR: ${{ runner.temp }}/smoke-sdist/uv-cache
+          DISTRIBUTION: ${{ steps.distributions.outputs.sdist }}
+        run: |
+          mkdir -p "$HOME" "$CODEX_HOME"
+          uvx --from "$DISTRIBUTION" orchestrated-codex --install
+          test -f "$HOME/.agents/skills/orchestrated-delivery/SKILL.md"
+          test -f "$CODEX_HOME/agents/tester.toml"
+          uvx --from "$DISTRIBUTION" orchestrated-codex --uninstall
+          test ! -e "$HOME/.agents/skills/orchestrated-delivery/SKILL.md"
+          test ! -e "$CODEX_HOME/codex-orchestrator-install.json"
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-package-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/orchestrated-codex
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

@@ -1,4 +1,4 @@
-# CodexOrchestrator
+# orchestrated-codex
 
 A standalone, Codex-native software delivery workflow. It installs a reusable
 orchestration skill and focused custom agents so Codex follows a structured process
@@ -9,23 +9,20 @@ verify the result. The orchestrator hands each subagent a scoped digest of the p
 discovery impact map so work proceeds without re-reading whole artifacts, keeping runs fast
 and cheap under the same phased contract.
 
-## Install from source
+## Installation
 
-The package is not published to a package index. Install it from a checkout with
-[uv](https://docs.astral.sh/uv/):
+Install with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-git clone https://github.com/knuthelge/CodexOrchestrator.git
-cd CodexOrchestrator
-uv tool install .
-codex-orchestrator --install
+uvx orchestrated-codex --install
 ```
 
-To install a specific revision without cloning, point uv at a git reference:
+To run from source instead, use a checkout:
 
 ```sh
-uv tool install "git+https://github.com/knuthelge/CodexOrchestrator.git"
-codex-orchestrator --install
+git clone https://github.com/knuthelge/orchestrated-codex.git
+cd orchestrated-codex
+uv run main.py --install
 ```
 
 Restart Codex or start a new conversation after installation. Invoke the workflow
@@ -44,11 +41,10 @@ resolves under `$HOME/.agents/skills`.
 
 ## Uninstall
 
-First remove the files copied into the two roots, then remove the uv-managed command:
+Remove the installed files with:
 
 ```sh
-codex-orchestrator --uninstall
-uv tool uninstall codex-orchestrator
+uvx orchestrated-codex --uninstall
 ```
 
 The installer refuses to overwrite files it does not own. Uninstall removes only installed
@@ -85,4 +81,5 @@ Build the wheel and source distribution and inspect them:
 uv build
 ```
 
-The distribution and installed command are both named `codex-orchestrator`.
+The PyPI distribution and command are both named `orchestrated-codex`. The importable
+Python module remains `codex_orchestrator` for compatibility.
