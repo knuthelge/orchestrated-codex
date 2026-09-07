@@ -1,9 +1,10 @@
 # orchestrated-codex
 
-A standalone, Codex-native software delivery workflow. It installs a reusable
-orchestration skill and focused custom agents so Codex follows a structured process
-for discovery, planning, independent plan review, implementation, testing, and final
-review. The skill instructs the primary Codex thread to orchestrate only — classify the
+A standalone collection of Codex-native software delivery skills. It installs a reusable
+orchestration workflow, an explicit code-review workflow, and focused custom agents so
+Codex can follow a structured process for discovery, planning, independent plan review,
+implementation, testing, and final review. The delivery skill instructs the primary Codex
+thread to orchestrate only — classify the
 request, delegate every unit of work to a named subagent or the built-in `worker`, and
 verify the result. The orchestrator hands each subagent a scoped digest of the plan and a
 discovery impact map so work proceeds without re-reading whole artifacts, keeping runs fast
@@ -25,14 +26,24 @@ cd orchestrated-codex
 uv run main.py --install
 ```
 
-Restart Codex or start a new conversation after installation. To use the workflow,
-invoke it explicitly with `$orchestrated-delivery`; Codex will not select it
-automatically based on the request.
+Restart Codex or start a new conversation after installation. Invoke either workflow
+explicitly; Codex will not select them automatically based on the request:
+
+```text
+$orchestrated-delivery implement this feature
+$code-review review the current changes
+```
+
+`$code-review` writes its independently verified, prioritized findings to
+`code-review.md`. It reviews local changes by default and uses pull-request context when
+available. Every review also tracks the mandatory ten-stage workflow and its per-finding
+validators in `.agent-work/code-review-checklist.md`. The review does not publish comments
+or modify code unless you separately ask for that action.
 
 The installer writes to two independent roots:
 
-- The **skill** installs under `$HOME/.agents/skills/orchestrated-delivery`, a documented
-  Codex skills root, so Codex discovers it.
+- The **skills** install under `$HOME/.agents/skills`, a documented Codex skills root, so
+  Codex discovers them.
 - The **agents** install under the Codex home — `CODEX_HOME` when it is set and `~/.codex`
   otherwise — as `agents/*.toml`.
 
@@ -56,6 +67,8 @@ locally modified installed files are preserved and reported.
 - `orchestrated-delivery` (skill): task classification and an adaptive discovery, planning,
   independent plan review, implementation, testing, and final-review workflow. Installs under
   `$HOME/.agents/skills`.
+- `code-review` (skill): explicit-only review of a local diff or pull request, producing a
+  restrained, prioritized, independently verified `code-review.md` report.
 - `agents/discovery.toml`: read-only codebase reconnaissance.
 - `agents/spec-designer.toml`: requirements and technical design.
 - `agents/rubber-duck.toml`: independent PRD peer review (PASS/CONCERNS).

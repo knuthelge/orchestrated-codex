@@ -1,4 +1,4 @@
-"""Install or remove the Codex Orchestrator skill and custom agents."""
+"""Install or remove the Codex Orchestrator skills and custom agents."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ AGENT_SOURCES = {
 # The skill installs under a documented Codex skills root anchored to $HOME.
 SKILL_SOURCES = {
     Path("orchestrated-delivery"): RESOURCE_ROOT / "skills/orchestrated-delivery",
+    Path("code-review"): RESOURCE_ROOT / "skills/code-review",
 }
 
 

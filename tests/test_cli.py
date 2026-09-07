@@ -38,11 +38,17 @@ class InstallerTests(unittest.TestCase):
         for destination, source in expected.items():
             self.assertEqual(destination.read_bytes(), source.read_bytes())
 
-        # SC-1: skill lands under $HOME/.agents/skills/orchestrated-delivery.
-        skill_dir = self.skill_root / "orchestrated-delivery"
-        self.assertTrue((skill_dir / "SKILL.md").is_file())
-        self.assertTrue((skill_dir / "agents" / "openai.yaml").is_file())
-        self.assertTrue((skill_dir / "references").is_dir())
+        # SC-1: skills land directly under $HOME/.agents/skills.
+        delivery_skill_dir = self.skill_root / "orchestrated-delivery"
+        self.assertTrue((delivery_skill_dir / "SKILL.md").is_file())
+        self.assertTrue((delivery_skill_dir / "agents" / "openai.yaml").is_file())
+        self.assertTrue((delivery_skill_dir / "references").is_dir())
+        review_skill_dir = self.skill_root / "code-review"
+        self.assertTrue((review_skill_dir / "SKILL.md").is_file())
+        self.assertTrue((review_skill_dir / "agents" / "openai.yaml").is_file())
+        self.assertTrue(
+            (review_skill_dir / "references" / "review-checklist-template.md").is_file()
+        )
 
         # SC-2: agents land under <codex-home>/agents.
         for name in (
@@ -66,6 +72,7 @@ class InstallerTests(unittest.TestCase):
         for destination in expected:
             self.assertFalse(destination.exists())
         self.assertFalse((self.skill_root / "orchestrated-delivery").exists())
+        self.assertFalse((self.skill_root / "code-review").exists())
 
     def test_install_refuses_foreign_file(self) -> None:
         destination = next(iter(self.files()))
@@ -336,6 +343,9 @@ class InstallerTests(unittest.TestCase):
 
         self.assertTrue(
             (home / ".agents" / "skills" / "orchestrated-delivery" / "SKILL.md").is_file()
+        )
+        self.assertTrue(
+            (home / ".agents" / "skills" / "code-review" / "SKILL.md").is_file()
         )
         self.assertTrue((codex_home / "agents" / "tester.toml").is_file())
 

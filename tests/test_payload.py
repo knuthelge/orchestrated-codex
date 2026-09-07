@@ -30,6 +30,17 @@ SKILL_MD = cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "SKILL.md"
 SKILL_OPENAI_YAML = (
     cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "agents" / "openai.yaml"
 )
+CODE_REVIEW_SKILL_MD = cli.RESOURCE_ROOT / "skills" / "code-review" / "SKILL.md"
+CODE_REVIEW_OPENAI_YAML = (
+    cli.RESOURCE_ROOT / "skills" / "code-review" / "agents" / "openai.yaml"
+)
+CODE_REVIEW_CHECKLIST = (
+    cli.RESOURCE_ROOT
+    / "skills"
+    / "code-review"
+    / "references"
+    / "review-checklist-template.md"
+)
 
 
 def agent_toml_paths() -> list[Path]:
@@ -158,6 +169,101 @@ class SkillPayloadTests(unittest.TestCase):
     def test_body_contains_prompt_contract(self) -> None:  # SC-7
         for field in ("Acceptance Criteria", "UI Affected", "Docs Affected", "Expected Output"):
             self.assertIn(field, self.body)
+
+
+class CodeReviewSkillPayloadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.frontmatter, self.body = parse_frontmatter(
+            CODE_REVIEW_SKILL_MD.read_text(encoding="utf-8")
+        )
+        self.normalized_body = " ".join(self.body.split())
+
+    def test_frontmatter_and_explicit_invocation_policy(self) -> None:
+        self.assertEqual(self.frontmatter.get("name"), "code-review")
+        self.assertIn("explicitly invokes $code-review", self.frontmatter.get("description", ""))
+        metadata = CODE_REVIEW_OPENAI_YAML.read_text(encoding="utf-8")
+        self.assertIn("default_prompt:", metadata)
+        self.assertIn("$code-review", metadata)
+        self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
+
+    def test_review_scope_and_authorization_boundaries(self) -> None:
+        self.assertIn("code-review.md", self.body)
+        self.assertIn("current pull request", self.body)
+        self.assertIn("working-tree diff", self.body)
+        self.assertIn("existing comments", self.body)
+        self.assertIn("do not change production code or tests", self.normalized_body)
+        self.assertIn("do not", self.body.lower())
+        self.assertIn("publish review comments", self.body)
+
+    def test_review_categories_and_false_positive_controls(self) -> None:
+        for concern in (
+            "Security",
+            "Correctness",
+            "Performance",
+            "Test coverage",
+            "architecture",
+            "Maintainability",
+            "documentation",
+        ):
+            self.assertIn(concern, self.body)
+        self.assertIn("TODO/FIXME", self.body)
+        self.assertIn("suppressions", self.body)
+        self.assertIn("false positives", self.body)
+        self.assertIn("Keep the findings set restrained", self.body)
+
+    def test_mandatory_file_backed_checklist_preserves_original_review_stages(self) -> None:
+        checklist = CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8")
+        self.assertIn("mandatory for every review", self.normalized_body)
+        self.assertIn(".agent-work/code-review-checklist.md", self.normalized_body)
+        self.assertIn("in-progress", self.normalized_body)
+        self.assertIn("completed", self.normalized_body)
+        numbered_steps = [
+            line for line in checklist.splitlines() if line.startswith(tuple(f"| {i} " for i in range(1, 11)))
+        ]
+        self.assertEqual(len(numbered_steps), 10)
+        for step in (
+            "Initialize review context",
+            "Security and critical issues",
+            "Performance and logic",
+            "Code quality and standards",
+            "Testing and documentation",
+            "Architecture and dependencies",
+            "Maintainability and best practices",
+            "Verify suggested changes",
+            "Generate provisional review document",
+            "Verify findings and finalize",
+        ):
+            self.assertIn(step, checklist)
+
+    def test_requires_one_distinct_independent_validator_per_finding(self) -> None:
+        self.assertIn("one distinct read-only review subagent", self.normalized_body)
+        self.assertIn("exactly one candidate claim", self.normalized_body)
+        self.assertIn("Never batch multiple findings", self.normalized_body)
+        self.assertIn(
+            "validator identity, verdict, and brief evidence", self.normalized_body
+        )
+        self.assertNotIn("Batch related findings", self.body)
+
+    def test_provisional_draft_precedes_validation_and_finalization(self) -> None:
+        checklist = " ".join(CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8").split())
+        self.assertIn("provisional `code-review.md` draft", self.normalized_body)
+        self.assertIn("label the draft and every candidate as unverified", self.normalized_body)
+        self.assertIn("before retaining it in the finalized report", self.normalized_body)
+        self.assertIn("remove its provisional labels", self.normalized_body)
+        self.assertLess(
+            checklist.index("Generate provisional review document"),
+            checklist.index("Verify findings and finalize"),
+        )
+
+    def test_does_not_depend_on_copilot_only_tools(self) -> None:
+        for unavailable_tool in (
+            "manage_todo_list",
+            "runSubagent",
+            "activePullRequest",
+            "openPullRequest",
+            "github.vscode-pull-request-github",
+        ):
+            self.assertNotIn(unavailable_tool, self.body)
 
 
 class DiscoverabilityTests(unittest.TestCase):
