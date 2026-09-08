@@ -37,7 +37,7 @@ $code-review review the current changes
 `$code-review` writes its independently verified, prioritized findings to
 `code-review.md`. It reviews local changes by default and uses pull-request context when
 available. Every review also tracks the mandatory ten-stage workflow and its per-finding
-validators in `.agent-work/code-review-checklist.md`. The review does not publish comments
+validation in `.agent-work/code-review-checklist.md`. The review does not publish comments
 or modify code unless you separately ask for that action.
 
 The installer writes to two independent roots:
@@ -68,7 +68,8 @@ locally modified installed files are preserved and reported.
   independent plan review, implementation, testing, and final-review workflow. Installs under
   `$HOME/.agents/skills`.
 - `code-review` (skill): explicit-only review of a local diff or pull request, producing a
-  restrained, prioritized, independently verified `code-review.md` report.
+  comprehensive, prioritized, independently verified `code-review.md` report without a
+  minimum or maximum finding count.
 - `agents/discovery.toml`: read-only codebase reconnaissance.
 - `agents/spec-designer.toml`: requirements and technical design.
 - `agents/rubber-duck.toml`: independent PRD peer review (PASS/CONCERNS).

@@ -17,11 +17,12 @@ finished.
 | 7 | Maintainability and best practices | Check technical debt, hardcoded values, extensibility, reuse, and language/framework practices. | pending |
 | 8 | Verify suggested changes | Re-check candidate claims and ensure each suggestion is accurate, actionable, and an actual improvement. | pending |
 | 9 | Generate provisional review document | Draft `code-review.md` with its executive summary, recommendation, prioritized candidate findings, paths, evidence, and suggested changes; label the draft and candidates as unverified. | pending |
-| 10 | Verify findings and finalize | Assign one distinct read-only subagent to each candidate finding, record its verdict below, remove or downgrade false positives, and remove provisional labels before finalizing the report. | pending |
+| 10 | Verify findings and finalize | Validate every candidate through a separate read-only subagent assignment. Reuse validator context where useful, distribute assignments across available validators, and record an individual verdict and evidence for each claim before finalizing. | pending |
 
 ## Finding validation
 
-Add one row per candidate finding. A validator may appear in only one row.
+Add one row per candidate finding. A validator may appear in multiple rows, but each finding
+must have a separate assignment, verdict, and evidence.
 
 | Finding ID | Candidate claim | Validator | Verdict | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |

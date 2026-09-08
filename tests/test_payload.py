@@ -209,7 +209,9 @@ class CodeReviewSkillPayloadTests(unittest.TestCase):
         self.assertIn("TODO/FIXME", self.body)
         self.assertIn("suppressions", self.body)
         self.assertIn("false positives", self.body)
-        self.assertIn("Keep the findings set restrained", self.body)
+        self.assertIn("Report every independently supported, actionable defect", self.body)
+        self.assertIn("Do not target a minimum or maximum number of findings", self.body)
+        self.assertIn("do not report the mere presence of a suppression", self.normalized_body)
 
     def test_mandatory_file_backed_checklist_preserves_original_review_stages(self) -> None:
         checklist = CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8")
@@ -235,20 +237,28 @@ class CodeReviewSkillPayloadTests(unittest.TestCase):
         ):
             self.assertIn(step, checklist)
 
-    def test_requires_one_distinct_independent_validator_per_finding(self) -> None:
-        self.assertIn("one distinct read-only review subagent", self.normalized_body)
-        self.assertIn("exactly one candidate claim", self.normalized_body)
-        self.assertIn("Never batch multiple findings", self.normalized_body)
+    def test_requires_independent_validation_with_per_finding_verdicts(self) -> None:
         self.assertIn(
-            "validator identity, verdict, and brief evidence", self.normalized_body
+            "For every candidate finding, create a separate validation assignment",
+            self.normalized_body,
         )
-        self.assertNotIn("Batch related findings", self.body)
+        self.assertIn("a read-only review subagent", self.normalized_body)
+        self.assertIn("independent of the primary reviewer", self.normalized_body)
+        self.assertIn("exactly one candidate claim", self.normalized_body)
+        self.assertIn("may receive multiple assignments", self.normalized_body)
+        self.assertIn("distribute assignments among them", self.normalized_body)
+        self.assertIn("Prefer a fresh validator for critical", self.normalized_body)
+        self.assertIn(
+            "individual verdict and brief evidence for every claim", self.normalized_body
+        )
+        checklist = " ".join(CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8").split())
+        self.assertIn("each finding must have a separate assignment, verdict, and evidence", checklist)
 
     def test_provisional_draft_precedes_validation_and_finalization(self) -> None:
         checklist = " ".join(CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8").split())
         self.assertIn("provisional `code-review.md` draft", self.normalized_body)
         self.assertIn("label the draft and every candidate as unverified", self.normalized_body)
-        self.assertIn("before retaining it in the finalized report", self.normalized_body)
+        self.assertIn("before retaining candidates in the finalized report", self.normalized_body)
         self.assertIn("remove its provisional labels", self.normalized_body)
         self.assertLess(
             checklist.index("Generate provisional review document"),

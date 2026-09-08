@@ -35,8 +35,9 @@ or extension tools.
   inspect its description, changed files, existing comments, reviews, and discussion. Use
   that context to avoid duplicating resolved or already-reported feedback. Do not require a
   GitHub connection when the local repository contains enough context.
-- Treat warning, lint, and type suppressions as necessary and out of scope. Do not report
-  them unless the user explicitly includes suppression safety in the review scope.
+- Inspect warning, lint, and type suppressions added or affected by the change. Report a
+  suppression only when there is concrete evidence that it hides a defect or creates a
+  material maintenance risk; do not report the mere presence of a suppression.
 - Locate TODO/FIXME comments added or affected by the change and determine whether they hide
   incomplete behavior, deferred correctness work, or required follow-up.
 
@@ -57,17 +58,24 @@ Prioritize defects that materially affect users or maintainers:
 
 Distinguish concrete defects from questions, optional refactors, and future observations.
 Avoid speculative feedback and stylistic preferences already enforced by formatters or
-linters. Keep the findings set restrained: report only items the author can act on and that
-are worth their attention. Include positive feedback only when it adds useful context.
+linters. Report every independently supported, actionable defect worth the author's
+attention. Do not target a minimum or maximum number of findings, and do not omit a valid
+finding merely to keep the report short. Include positive feedback only when it adds useful
+context.
 
 Step 9 may place candidate findings in a provisional `code-review.md` draft, but it must label
-the draft and every candidate as unverified. For every candidate finding, delegate validation
-to one distinct read-only review subagent before retaining it in the finalized report or
-presenting it as verified. Give that validator the diff, relevant context, and exactly one
-candidate claim without revealing the intended verdict or instructing it to agree. Never batch
-multiple findings into one validation assignment, and never let the primary reviewer
-substitute its own second pass for independent validation. Record the validator identity,
-verdict, and brief evidence in the checklist's finding-validation table.
+the draft and every candidate as unverified. Complete independent validation before retaining
+candidates in the finalized report or presenting them as verified. For every candidate
+finding, create a separate validation assignment for a read-only review subagent that is
+independent of the primary reviewer. Give the validator the diff, relevant context, and
+exactly one candidate claim without revealing the intended verdict or instructing it to
+agree. A validator may receive multiple assignments so it can reuse its understanding of the
+change. When multiple validators are available, distribute assignments among them so one
+validator is not the sole check for an entire multi-finding review. Prefer a fresh validator
+for critical, security-sensitive, or closely related claims where a shared mistaken
+assumption could affect multiple verdicts. Require an individual verdict and brief evidence
+for every claim, and record them in the checklist's finding-validation table. Never let the
+primary reviewer substitute its own second pass for independent validation.
 
 During step 10, remove findings that the validator confirms are false positives and downgrade
 or omit claims that remain uncertain. Then finalize `code-review.md` and remove its provisional
