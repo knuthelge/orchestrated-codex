@@ -148,6 +148,40 @@ def remove_empty_parents(path: Path, roots: Sequence[Path]) -> None:
         current = current.parent
 
 
+def print_install_report(
+    *,
+    agents_root: Path,
+    skill_root: Path,
+    added: Sequence[Path],
+    updated: Sequence[Path],
+    removed: Sequence[Path],
+    unchanged: Sequence[Path],
+    preserved: Sequence[Path],
+) -> None:
+    def display_path(path: Path) -> str:
+        if path.is_relative_to(agents_root):
+            return path.relative_to(agents_root).as_posix()
+        if path.is_relative_to(skill_root):
+            relative = path.relative_to(skill_root).as_posix()
+            return f".agents/skills/{relative}"
+        return str(path)
+
+    print("Changes:")
+    categories = (
+        ("Added", "+", added),
+        ("Updated", "~", updated),
+        ("Removed", "-", removed),
+        ("Unchanged", "", unchanged),
+        ("Preserved", "!", preserved),
+    )
+    for label, marker, paths in categories:
+        print(f"  {label:<9} {len(paths)}")
+        if marker:
+            for path in sorted(paths, key=str):
+                print(f"    {marker} {display_path(path)}")
+    print()
+
+
 def install(agents_root: Path, skill_root: Path) -> int:
     manifest_path = agents_root / MANIFEST_NAME
     previous = load_manifest(manifest_path)
@@ -163,15 +197,21 @@ def install(agents_root: Path, skill_root: Path) -> int:
 
     files = source_files(agents_root, skill_root)
     roots = [agents_root, skill_root]
+    source_hashes = {destination: digest(source) for destination, source in files.items()}
+    destination_hashes = {
+        destination: digest(destination)
+        for destination in files
+        if destination.is_file()
+    }
 
     conflicts: list[Path] = []
-    for destination, source in files.items():
+    for destination in files:
         if not destination.exists():
             continue
         recorded = recorded_hashes.get(destination)
-        if recorded is None or digest(destination) != recorded:
-            if digest(destination) != digest(source):
-                conflicts.append(destination)
+        current = destination_hashes.get(destination)
+        if (recorded is None or current != recorded) and current != source_hashes[destination]:
+            conflicts.append(destination)
 
     if conflicts:
         print("Installation stopped; these files exist and are not unchanged files from this installer:")
@@ -181,6 +221,7 @@ def install(agents_root: Path, skill_root: Path) -> int:
 
     current_paths = set(files)
     obsolete = set(recorded_hashes) - current_paths
+    removed: list[Path] = []
     preserved_obsolete: list[Path] = []
     for destination in sorted(obsolete, key=str):
         if not destination.exists():
@@ -188,25 +229,41 @@ def install(agents_root: Path, skill_root: Path) -> int:
         if destination.is_file() and digest(destination) == recorded_hashes[destination]:
             destination.unlink()
             remove_empty_parents(destination.parent, roots)
-            print(f"removed obsolete {destination}")
+            removed.append(destination)
         else:
             preserved_obsolete.append(destination)
 
+    added: list[Path] = []
+    updated: list[Path] = []
+    unchanged: list[Path] = []
     installed: dict[str, str] = {}
     for destination, source in files.items():
-        atomic_copy(source, destination)
-        installed[destination.as_posix()] = digest(destination)
-        print(f"installed {destination}")
+        source_hash = source_hashes[destination]
+        current_hash = destination_hashes.get(destination)
+        if current_hash == source_hash:
+            unchanged.append(destination)
+        else:
+            atomic_copy(source, destination)
+            if current_hash is None:
+                added.append(destination)
+            else:
+                updated.append(destination)
+        installed[destination.as_posix()] = source_hash
 
     write_manifest(
         manifest_path,
         {"installer": "codex-orchestrator", "version": MANIFEST_VERSION, "files": installed},
     )
-    if preserved_obsolete:
-        print("Preserved locally modified files that are no longer distributed:")
-        for path in preserved_obsolete:
-            print(f"  {path}")
-    print(f"Installation complete. Restart Codex or start a new conversation.\nManifest: {manifest_path}")
+    print_install_report(
+        agents_root=agents_root,
+        skill_root=skill_root,
+        added=added,
+        updated=updated,
+        removed=removed,
+        unchanged=unchanged,
+        preserved=preserved_obsolete,
+    )
+    print(f"Installation complete.\nRestart Codex or start a new conversation.\nManifest: {manifest_path}")
     return 0
 
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import tempfile
 import unittest
 import unittest.mock
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from codex_orchestrator import cli
@@ -26,6 +28,12 @@ class InstallerTests(unittest.TestCase):
 
     def files(self) -> dict[Path, Path]:
         return cli.source_files(self.agents_root, self.skill_root)
+
+    def captured_install(self) -> tuple[int, str]:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = cli.install(self.agents_root, self.skill_root)
+        return result, output.getvalue()
 
     def test_install_places_skill_and_agents_in_independent_roots(self) -> None:
         expected = self.files()
@@ -61,6 +69,49 @@ class InstallerTests(unittest.TestCase):
         ):
             self.assertTrue((self.agents_root / "agents" / name).is_file())
         self.assertFalse((self.agents_root / "agents" / "verifier.toml").exists())
+
+    def test_install_reports_checksum_based_file_changes(self) -> None:
+        source = Path(self.temporary_directory.name) / "source.toml"
+        destination = self.agents_root / "agents" / "example.toml"
+        source.write_text("version 1", encoding="utf-8")
+
+        with unittest.mock.patch.object(
+            cli, "source_files", return_value={destination: source}
+        ):
+            result, output = self.captured_install()
+            self.assertEqual(result, 0)
+            self.assertIn(
+                "Changes:\n"
+                "  Added     1\n"
+                "    + agents/example.toml\n"
+                "  Updated   0\n"
+                "  Removed   0\n"
+                "  Unchanged 0\n"
+                "  Preserved 0\n",
+                output,
+            )
+
+            result, output = self.captured_install()
+            self.assertEqual(result, 0)
+            self.assertIn(
+                "  Added     0\n"
+                "  Updated   0\n"
+                "  Removed   0\n"
+                "  Unchanged 1\n"
+                "  Preserved 0\n",
+                output,
+            )
+
+            source.write_text("version 2", encoding="utf-8")
+            result, output = self.captured_install()
+            self.assertEqual(result, 0)
+            self.assertIn("  Updated   1\n    ~ agents/example.toml\n", output)
+            self.assertEqual(destination.read_text(encoding="utf-8"), "version 2")
+
+        with unittest.mock.patch.object(cli, "source_files", return_value={}):
+            result, output = self.captured_install()
+            self.assertEqual(result, 0)
+            self.assertIn("  Removed   1\n    - agents/example.toml\n", output)
 
     def test_uninstall_removes_files_from_both_roots(self) -> None:
         expected = self.files()
