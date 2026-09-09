@@ -85,29 +85,16 @@ fallback as independently verified.
 
 ## Write `code-review.md`
 
-Lead with an executive summary, the reviewed scope, and one recommendation: `approve`,
-`comment`, or `request changes`, with a short rationale. Then list findings from highest to
-lowest priority. Use these priority labels:
+Before drafting or finalizing the report, read and follow
+[references/report-format.md](references/report-format.md). Its report structure, labeled
+finding fields, and separation of verified defects from non-blocking observations are
+mandatory; omit only fields the format marks optional.
 
-- 🔥 Critical
-- ⚠️ High
-- 🟡 Medium
-- 🟢 Low
-
-For each finding, include:
-
-- a concise action marker such as 🔧 change request, ❓ question, ♻️ refactor, 💭 concern,
-  ⛏️ nitpick, 🌱 future observation, or 👍 positive feedback;
-- priority and a precise repository-relative file path with line or diff location;
-- the observable problem, impact, and reasoning;
-- a concrete suggested change, with a short code example only when it materially clarifies
-  the fix; and
-- relevant standards or documentation when they strengthen the recommendation.
-
-If no actionable defects remain after verification, say so clearly and note meaningful
-coverage gaps or residual risks without inventing findings. End with a compact summary of
-finding counts by priority, verification performed, and any assumptions or inaccessible
-context.
+Optimize the report for scanning. Use short sections and labeled bullet points, not dense
+multi-paragraph findings. List verified actionable defects from highest to lowest priority,
+and make the recommendation reflect merge risk. If no actionable defects remain after
+verification, say so clearly and note meaningful coverage gaps or residual risks without
+inventing findings.
 
 Return a concise message identifying the report path and overall recommendation. Keep all
 review details in `code-review.md`.

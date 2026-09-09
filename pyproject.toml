@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "orchestrated-codex"
-version = "0.1.7"
+version = "0.1.8"
 description = "Install Codex delivery and code-review skills with focused custom agents."
 readme = "README.md"
 requires-python = ">=3.11"
