@@ -1,6 +1,6 @@
 ---
 name: orchestrated-delivery
-description: Deliver software changes through an adaptive workflow of task classification, codebase discovery, requirements and technical design, independent plan review, implementation, testing, UI verification, and final review. Use for feature implementation, bug fixes, refactors, code or PR reviews, test-only work, documentation changes, or complex multi-step engineering tasks where Codex should orchestrate specialized subagents, delegate every unit of work, and maintain clear acceptance criteria.
+description: Deliver software changes through an adaptive workflow of task classification, codebase discovery, requirements and technical design, independent plan review, implementation, testing, UI verification, and final review. Use for feature implementation, bug fixes, refactors, code or PR reviews, test-only work, documentation changes, or complex multi-step engineering tasks where Codex should orchestrate specialized subagents and maintain clear acceptance criteria.
 ---
 
 # Orchestrated delivery
@@ -8,14 +8,15 @@ description: Deliver software changes through an adaptive workflow of task class
 ## Doctrine: orchestrate only
 
 The primary thread is the orchestrator. It plans, classifies the request, delegates
-every unit of work to a named subagent or the built-in `worker`, and verifies the
-results. It does not write production code, author tests, or perform the final review
-itself — each of those is delegated.
+bounded work when independent review, specialization, or parallelism materially improves
+the result, and verifies the results. Keep the critical path moving locally; do not
+delegate work whose result is immediately required for the next step. It does not write
+production code, author tests, or perform the final review itself — each of those is
+delegated.
 
 This is instruction-based doctrine, applied best effort. Codex provides no primitive
-that structurally prevents the primary thread from implementing, so treat this mandate
-as strongly as if it were enforced: when work needs doing, route it to a subagent rather
-than doing it inline. Keep user intent and final responsibility in the primary thread.
+that structurally prevents the primary thread from implementing, so keep user intent and
+final responsibility in the primary thread.
 
 ## Task classification (first, always)
 
@@ -113,6 +114,21 @@ As guidance (not a per-agent hook): the `tester`'s read-heavy first pass therefo
 the cheaper `gpt-5.6-terra` tier, and escalation to a top-tier re-check on a FAIL is an
 orchestrator-driven re-spawn rather than an in-agent switch. `rubber_duck` stays on `gpt-5.6-sol`
 to keep the review gate at the top tier.
+
+## Context and waiting discipline
+
+For independent delegations, spawn with `fork_turns: "none"` and provide a
+self-contained scoped digest: task, authoritative constraints, acceptance criteria,
+relevant paths/evidence, ownership, dependencies, and expected output. Use a partial or
+full-history fork only when that information cannot be conveyed compactly in the digest,
+and state why. No-fork dispatch isolates conversation context, not filesystem access or
+permissions.
+
+While useful non-overlapping work remains, do not wait or poll subagents. When genuinely
+idle with children outstanding, use one long `wait_agent` call (5–10 minutes); it wakes
+early on an update. Do not check status every minute. After a wake or timeout, process all
+queued results and inspect agent status only when it affects the next routing decision. A
+timeout alone does not mean a subagent is stalled.
 
 ## Structured subagent prompt contract
 

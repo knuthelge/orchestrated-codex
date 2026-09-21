@@ -148,6 +148,15 @@ class SkillPayloadTests(unittest.TestCase):
         for phase in ("Phase 0", "Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"):
             self.assertIn(phase, self.body)
 
+    def test_context_and_waiting_discipline(self) -> None:
+        normalized = " ".join(self.body.split())
+        self.assertIn('fork_turns: "none"', normalized)
+        self.assertIn("self-contained scoped digest", normalized)
+        self.assertIn("not filesystem access or permissions", normalized)
+        self.assertIn("do not wait or poll subagents", normalized)
+        self.assertIn("one long `wait_agent` call (5–10 minutes)", normalized)
+        self.assertIn("A timeout alone does not mean a subagent is stalled.", normalized)
+
     def test_body_contains_never_stop_clause(self) -> None:  # SC-5 / SC-7
         self.assertIn("askQuestions", self.body)
         self.assertIn("Stopping is a failure state", self.body)

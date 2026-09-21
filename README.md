@@ -5,8 +5,9 @@ orchestration workflow, an explicit code-review workflow, and focused custom age
 Codex can follow a structured process for discovery, planning, independent plan review,
 implementation, testing, and final review. The delivery skill instructs the primary Codex
 thread to orchestrate only — classify the
-request, delegate every unit of work to a named subagent or the built-in `worker`, and
-verify the result. The orchestrator hands each subagent a scoped digest of the plan and a
+request, delegate bounded work when specialization, independent review, or parallelism
+materially improves the result, and verify the result. The orchestrator hands each
+subagent a scoped digest of the plan and a
 discovery impact map so work proceeds without re-reading whole artifacts, keeping runs fast
 and cheap under the same phased contract.
 
@@ -78,7 +79,9 @@ locally modified installed files are preserved and reported.
 - `agents/final-reviewer.toml`: read-only holistic final review.
 
 Implementation is delegated to Codex's built-in `worker`. The primary Codex thread
-orchestrates the workflow and does not implement work itself.
+orchestrates the workflow and does not implement work itself. Independent delegations use
+fresh context by default and the orchestrator avoids short polling loops while waiting for
+subagent results.
 
 ## Development
 
