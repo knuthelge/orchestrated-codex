@@ -102,7 +102,7 @@ jobs:
           DISTRIBUTION: ${{ steps.distributions.outputs.wheel }}
         run: |
           mkdir -p "$HOME" "$CODEX_HOME"
-          uvx --from "$DISTRIBUTION" orchestrated-codex --install
+          uvx --from "$DISTRIBUTION" orchestrated-codex --install --all
           test -f "$HOME/.agents/skills/orchestrated-delivery/SKILL.md"
           test -f "$CODEX_HOME/agents/tester.toml"
           uvx --from "$DISTRIBUTION" orchestrated-codex --uninstall
@@ -117,7 +117,7 @@ jobs:
           DISTRIBUTION: ${{ steps.distributions.outputs.sdist }}
         run: |
           mkdir -p "$HOME" "$CODEX_HOME"
-          uvx --from "$DISTRIBUTION" orchestrated-codex --install
+          uvx --from "$DISTRIBUTION" orchestrated-codex --install --all
           test -f "$HOME/.agents/skills/orchestrated-delivery/SKILL.md"
           test -f "$CODEX_HOME/agents/tester.toml"
           uvx --from "$DISTRIBUTION" orchestrated-codex --uninstall

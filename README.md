@@ -19,6 +19,11 @@ Install with [uv](https://docs.astral.sh/uv/):
 uvx orchestrated-codex --install
 ```
 
+The installer opens a guided checklist. Use the arrow keys to move, Space to select one or
+more components, and Enter to install the selected set. Previously installed components are
+preselected; deselecting one removes its unchanged files while preserving locally modified
+files.
+
 To run from source instead, use a checkout:
 
 ```sh
@@ -26,6 +31,17 @@ git clone https://github.com/knuthelge/orchestrated-codex.git
 cd orchestrated-codex
 uv run main.py --install
 ```
+
+For CI or other unattended installs, explicitly install everything or name a comma-separated
+component set:
+
+```sh
+uvx orchestrated-codex --install --all
+uvx orchestrated-codex --install --components code-review
+```
+
+Named component installs automatically include dependencies declared by the component
+registry. A plain `--install` requires an interactive terminal.
 
 Restart Codex or start a new conversation after installation. Invoke either workflow
 explicitly; Codex will not select them automatically based on the request:
@@ -88,9 +104,18 @@ subagent results.
 Run from a checkout and execute the tests:
 
 ```sh
-uv run main.py --install --codex-home /path/to/test-home
+uv run main.py --install --all --codex-home /path/to/test-home
 uv run python -m unittest discover -s tests
 ```
+
+Installable choices are defined in
+`src/codex_orchestrator/resources/install-components.yaml`. Each entry supplies the text shown
+by the installer, its `active` state, component dependencies, packaged sources, destination
+roots, and relative destination paths. Add new choices there rather than hard-coding them in
+the CLI. Inactive components that were never installed are hidden and excluded from unattended
+installs. If an installed component becomes inactive, the guided installer presents it as
+retired so the user can retain it or deselect it for safe removal. Registry paths must remain
+relative to the packaged resources and one of the supported installation roots.
 
 Build the wheel and source distribution and inspect them:
 

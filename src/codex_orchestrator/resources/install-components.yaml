@@ -1,0 +1,41 @@
+schema_version: 1
+components:
+  - id: orchestrated-delivery
+    title: Orchestrated delivery
+    active: true
+    description: Guided multi-agent software delivery workflow.
+    includes: Skill + 6 custom agents
+    depends_on: []
+    resources:
+      - source: skills/orchestrated-delivery
+        install_root: skills
+        destination: orchestrated-delivery
+      - source: agents/discovery.toml
+        install_root: codex_home
+        destination: agents/discovery.toml
+      - source: agents/spec-designer.toml
+        install_root: codex_home
+        destination: agents/spec-designer.toml
+      - source: agents/rubber-duck.toml
+        install_root: codex_home
+        destination: agents/rubber-duck.toml
+      - source: agents/ui-designer.toml
+        install_root: codex_home
+        destination: agents/ui-designer.toml
+      - source: agents/tester.toml
+        install_root: codex_home
+        destination: agents/tester.toml
+      - source: agents/final-reviewer.toml
+        install_root: codex_home
+        destination: agents/final-reviewer.toml
+
+  - id: code-review
+    title: Code review
+    active: true
+    description: Explicit, independently verified code-review workflow.
+    includes: Skill + supporting references
+    depends_on: []
+    resources:
+      - source: skills/code-review
+        install_root: skills
+        destination: code-review
