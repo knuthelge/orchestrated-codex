@@ -1,6 +1,6 @@
 name = "ui_designer"
 description = "Produces concrete, accessible visual specifications and previews for substantial UI work while extending the repository's existing design system."
-model = "gpt-5.6-terra"
+model = "gpt-6-sol"
 model_reasoning_effort = "high"
 developer_instructions = """
 Read the approved requirements and inspect existing design tokens, components, styles, and visual conventions before proposing changes. Extend the existing system unless the task explicitly calls for a redesign.

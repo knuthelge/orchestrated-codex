@@ -16,10 +16,10 @@ from codex_orchestrator import cli
 
 
 EXPECTED_MODELS = {
-    "discovery": "gpt-5.6-luna",
-    "final_reviewer": "gpt-5.6-sol",
-    "rubber_duck": "gpt-5.6-sol",
-    "spec_designer": "gpt-5.6-sol",
+    "discovery": "gpt-6-luna",
+    "final_reviewer": "gpt-6-sol",
+    "rubber_duck": "gpt-6-sol",
+    "spec_designer": "gpt-6-sol",
     "tester": "gpt-5.6-terra",
     "ui_designer": "gpt-5.6-terra",
 }
@@ -167,7 +167,7 @@ class SkillPayloadTests(unittest.TestCase):
         self.assertIn("worker", self.body)
 
     def test_body_contains_model_routing(self) -> None:  # SC-7
-        for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        for model in ("gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"):
             self.assertIn(model, self.body)
         self.assertNotRegex(
             self.body,
