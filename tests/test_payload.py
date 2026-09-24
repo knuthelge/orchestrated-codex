@@ -21,7 +21,7 @@ EXPECTED_MODELS = {
     "rubber_duck": "gpt-6-sol",
     "spec_designer": "gpt-6-sol",
     "tester": "gpt-5.6-terra",
-    "ui_designer": "gpt-5.6-terra",
+    "ui_designer": "gpt-6-sol",
 }
 READ_ONLY_AGENTS = {"discovery", "final_reviewer", "rubber_duck"}
 WRITE_AGENTS = {"spec_designer", "ui_designer", "tester"}
