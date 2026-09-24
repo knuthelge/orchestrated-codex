@@ -1,31 +1,51 @@
-schema_version: 1
+schema_version: 2
+repositories:
+  mattpocock-skills:
+    owner: mattpocock
+    repository: skills
+    ref: main
+    display_name: Matt Pocock skills
+    licence: MIT
 components:
   - id: orchestrated-delivery
     title: Orchestrated delivery
     active: true
     description: Guided multi-agent software delivery workflow.
     includes: Skill + 6 custom agents
-    depends_on: []
     resources:
-      - source: skills/orchestrated-delivery
+      - source:
+          kind: bundled
+          path: skills/orchestrated-delivery
         install_root: skills
         destination: orchestrated-delivery
-      - source: agents/discovery.toml
+      - source:
+          kind: bundled
+          path: agents/discovery.toml
         install_root: codex_home
         destination: agents/discovery.toml
-      - source: agents/spec-designer.toml
+      - source:
+          kind: bundled
+          path: agents/spec-designer.toml
         install_root: codex_home
         destination: agents/spec-designer.toml
-      - source: agents/rubber-duck.toml
+      - source:
+          kind: bundled
+          path: agents/rubber-duck.toml
         install_root: codex_home
         destination: agents/rubber-duck.toml
-      - source: agents/ui-designer.toml
+      - source:
+          kind: bundled
+          path: agents/ui-designer.toml
         install_root: codex_home
         destination: agents/ui-designer.toml
-      - source: agents/tester.toml
+      - source:
+          kind: bundled
+          path: agents/tester.toml
         install_root: codex_home
         destination: agents/tester.toml
-      - source: agents/final-reviewer.toml
+      - source:
+          kind: bundled
+          path: agents/final-reviewer.toml
         install_root: codex_home
         destination: agents/final-reviewer.toml
 
@@ -34,8 +54,102 @@ components:
     active: true
     description: Explicit, independently verified code-review workflow.
     includes: Skill + supporting references
-    depends_on: []
     resources:
-      - source: skills/code-review
+      - source:
+          kind: bundled
+          path: skills/code-review
         install_root: skills
         destination: code-review
+
+  - id: grill-me
+    title: Grill me
+    active: true
+    description: A skill that questions and sharpens an idea through dialogue.
+    includes: 2 skills + agent metadata
+    resources:
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grill-me/SKILL.md
+        install_root: skills
+        destination: grill-me/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grill-me/agents/openai.yaml
+        install_root: skills
+        destination: grill-me/agents/openai.yaml
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grilling/SKILL.md
+        install_root: skills
+        destination: grilling/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grilling/agents/openai.yaml
+        install_root: skills
+        destination: grilling/agents/openai.yaml
+
+  - id: handoff
+    title: Handoff
+    active: true
+    description: Prepare a concise handoff for another working session.
+    includes: Skill + agent metadata
+    resources:
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/handoff/SKILL.md
+        install_root: skills
+        destination: handoff/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/handoff/agents/openai.yaml
+        install_root: skills
+        destination: handoff/agents/openai.yaml
+
+  - id: teach
+    title: Teach
+    active: true
+    description: Explain and teach a topic through structured dialogue.
+    includes: Skill + 4 format guides + agent metadata
+    resources:
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/SKILL.md
+        install_root: skills
+        destination: teach/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/GLOSSARY-FORMAT.md
+        install_root: skills
+        destination: teach/GLOSSARY-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/LEARNING-RECORD-FORMAT.md
+        install_root: skills
+        destination: teach/LEARNING-RECORD-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/MISSION-FORMAT.md
+        install_root: skills
+        destination: teach/MISSION-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/RESOURCES-FORMAT.md
+        install_root: skills
+        destination: teach/RESOURCES-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/agents/openai.yaml
+        install_root: skills
+        destination: teach/agents/openai.yaml

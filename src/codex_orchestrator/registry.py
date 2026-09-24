@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 from yaml.events import AliasEvent
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 INSTALL_ROOTS = frozenset({"codex_home", "skills"})
 
 
@@ -30,12 +30,48 @@ class _RegistryLoader(yaml.SafeLoader):
             )
         return super().compose_node(parent, index)
 
+    def construct_mapping(self, node: Any, deep: bool = False) -> dict[Any, Any]:
+        result: dict[Any, Any] = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in result:
+                raise RegistryError(f"duplicate YAML field {key!r} (line {key_node.start_mark.line + 1})")
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
 
 @dataclass(frozen=True)
 class InstallResource:
-    source: Path
+    source: Path | BundledSource | GitHubSource
     install_root: str
     destination: Path
+
+
+@dataclass(frozen=True)
+class BundledSource:
+    kind: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class GitHubSource:
+    kind: str
+    repository: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class GitHubRepository:
+    id: str
+    owner: str
+    repository: str
+    ref: str
+    display_name: str
+    licence: str
+
+    @property
+    def homepage(self) -> str:
+        return f"https://github.com/{self.owner}/{self.repository}"
 
 
 @dataclass(frozen=True)
@@ -53,6 +89,7 @@ class InstallComponent:
 class ComponentRegistry:
     components: tuple[InstallComponent, ...]
     resource_root: Path
+    repositories: Mapping[str, GitHubRepository] | None = None
 
     @property
     def by_id(self) -> dict[str, InstallComponent]:
@@ -65,8 +102,11 @@ def _mapping(value: object, context: str) -> Mapping[str, object]:
     return value
 
 
-def _only_keys(value: Mapping[str, object], expected: set[str], context: str) -> None:
-    unknown = set(value) - expected
+def _only_keys(
+    value: Mapping[str, object], expected: set[str], context: str,
+    *, optional: Collection[str] = (),
+) -> None:
+    unknown = set(value) - expected - set(optional)
     missing = expected - set(value)
     if unknown:
         raise RegistryError(
@@ -97,13 +137,55 @@ def _relative_path(value: object, context: str) -> Path:
         candidate.is_absolute()
         or candidate == PurePosixPath(".")
         or ".." in candidate.parts
+        or any(char in text for char in ("\\", ":", "\x00"))
+        or any(ord(char) < 32 or ord(char) == 127 for char in text)
+        or any(part in ("", ".", "..") for part in text.split("/"))
     ):
         raise RegistryError(f"{context} must be a safe relative path: {text!r}")
-    if any(part in ("", ".") for part in candidate.parts):
-        raise RegistryError(
-            f"{context} must not contain empty or '.' segments: {text!r}"
-        )
     return Path(*candidate.parts)
+
+
+def _component_id(value: object, context: str) -> str:
+    result = _text(value, context)
+    if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", result) is None:
+        raise RegistryError(
+            f"{context} must contain only lowercase letters, digits, and hyphens"
+        )
+    return result
+
+
+def _repository_catalog(value: object) -> dict[str, GitHubRepository]:
+    catalog = _mapping(value, "registry.repositories")
+    result: dict[str, GitHubRepository] = {}
+    for raw_id, raw_repo in catalog.items():
+        repo_id = _component_id(raw_id, "registry.repositories key")
+        context = f"registry.repositories.{repo_id}"
+        data = _mapping(raw_repo, context)
+        _only_keys(data, {"owner", "repository", "ref", "display_name", "licence"}, context)
+        owner = _text(data["owner"], f"{context}.owner")
+        repository = _text(data["repository"], f"{context}.repository")
+        if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", owner):
+            raise RegistryError(f"{context}.owner is not a valid GitHub owner")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", repository) or repository.endswith(".git"):
+            raise RegistryError(f"{context}.repository is not a valid GitHub repository")
+        ref = _text(data["ref"], f"{context}.ref")
+        ref_segments = ref.split("/")
+        if (
+            ref != data["ref"]
+            or ".." in ref
+            or any(
+                not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]*", segment)
+                or segment.endswith((".", ".lock"))
+                for segment in ref_segments
+            )
+        ):
+            raise RegistryError(f"{context}.ref is not a safe Git ref")
+        result[repo_id] = GitHubRepository(
+            id=repo_id, owner=owner, repository=repository, ref=ref,
+            display_name=_text(data["display_name"], f"{context}.display_name"),
+            licence=_text(data["licence"], f"{context}.licence"),
+        )
+    return result
 
 
 def _string_list(value: object, context: str) -> tuple[str, ...]:
@@ -117,23 +199,48 @@ def _string_list(value: object, context: str) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _load_resource(value: object, context: str, resource_root: Path) -> InstallResource:
+def _load_resource(
+    value: object, context: str, resource_root: Path,
+    repositories: Mapping[str, GitHubRepository], schema_version: int,
+) -> InstallResource:
     data = _mapping(value, context)
     _only_keys(data, {"source", "install_root", "destination"}, context)
-    source = _relative_path(data["source"], f"{context}.source")
+    if schema_version == 1:
+        source: Path | BundledSource | GitHubSource = _relative_path(data["source"], f"{context}.source")
+        bundled_path = source
+    else:
+        source_data = _mapping(data["source"], f"{context}.source")
+        kind = _text(source_data.get("kind"), f"{context}.source.kind")
+        if kind == "bundled":
+            _only_keys(source_data, {"kind", "path"}, f"{context}.source")
+            bundled_path = _relative_path(source_data["path"], f"{context}.source.path")
+            source = BundledSource(kind="bundled", path=bundled_path)
+        elif kind == "github":
+            _only_keys(source_data, {"kind", "repository", "path"}, f"{context}.source")
+            repository_id = _component_id(source_data["repository"], f"{context}.source.repository")
+            if repository_id not in repositories:
+                raise RegistryError(f"{context}.source references unknown repository {repository_id!r}")
+            source = GitHubSource(
+                kind="github", repository=repository_id,
+                path=_relative_path(source_data["path"], f"{context}.source.path"),
+            )
+            bundled_path = None
+        else:
+            raise RegistryError(f"{context}.source.kind must be bundled or github")
     destination = _relative_path(data["destination"], f"{context}.destination")
     install_root = _text(data["install_root"], f"{context}.install_root")
     if install_root not in INSTALL_ROOTS:
         raise RegistryError(
             f"{context}.install_root must be one of: {', '.join(sorted(INSTALL_ROOTS))}"
         )
-    source_path = resource_root / source
-    if not source_path.exists():
-        raise RegistryError(f"{context}.source does not exist: {source.as_posix()}")
-    if not source_path.resolve().is_relative_to(resource_root.resolve()):
-        raise RegistryError(
-            f"{context}.source escapes the resource root: {source.as_posix()}"
-        )
+    if bundled_path is not None:
+        source_path = resource_root / bundled_path
+        if not source_path.exists():
+            raise RegistryError(f"{context}.source does not exist: {bundled_path.as_posix()}")
+        if not source_path.resolve().is_relative_to(resource_root.resolve()):
+            raise RegistryError(
+                f"{context}.source escapes the resource root: {bundled_path.as_posix()}"
+            )
     return InstallResource(source, install_root, destination)
 
 
@@ -173,12 +280,18 @@ def load_registry(path: Path, resource_root: Path) -> ComponentRegistry:
             f"Cannot read component registry {path}: {error}"
         ) from error
     data = _mapping(raw, "registry")
-    _only_keys(data, {"schema_version", "components"}, "registry")
-    if data["schema_version"] != SCHEMA_VERSION:
+    schema_version = data.get("schema_version")
+    if schema_version not in (1, SCHEMA_VERSION) or isinstance(schema_version, bool):
         raise RegistryError(
-            f"unsupported registry schema version {data['schema_version']!r}; "
-            f"expected {SCHEMA_VERSION}"
+            f"unsupported registry schema version {schema_version!r}; "
+            f"expected 1 or {SCHEMA_VERSION}"
         )
+    if schema_version == 1:
+        _only_keys(data, {"schema_version", "components"}, "registry")
+        repositories: dict[str, GitHubRepository] = {}
+    else:
+        _only_keys(data, {"schema_version", "repositories", "components"}, "registry")
+        repositories = _repository_catalog(data["repositories"])
     raw_components = data["components"]
     if not isinstance(raw_components, list) or not raw_components:
         raise RegistryError("registry.components must be a non-empty list")
@@ -186,24 +299,20 @@ def load_registry(path: Path, resource_root: Path) -> ComponentRegistry:
     components: list[InstallComponent] = []
     seen_ids: set[str] = set()
     destinations: dict[tuple[str, Path], str] = {}
+    sources: dict[Path | BundledSource | GitHubSource, str] = {}
     component_fields = {
         "id",
         "title",
         "active",
         "description",
         "includes",
-        "depends_on",
         "resources",
     }
     for index, raw_component in enumerate(raw_components):
         context = f"registry.components[{index}]"
         component_data = _mapping(raw_component, context)
-        _only_keys(component_data, component_fields, context)
-        component_id = _text(component_data["id"], f"{context}.id")
-        if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", component_id) is None:
-            raise RegistryError(
-                f"{context}.id must contain only lowercase letters, digits, and hyphens"
-            )
+        _only_keys(component_data, component_fields, context, optional={"depends_on"})
+        component_id = _component_id(component_data["id"], f"{context}.id")
         if component_id in seen_ids:
             raise RegistryError(f"duplicate component id: {component_id}")
         seen_ids.add(component_id)
@@ -212,11 +321,18 @@ def load_registry(path: Path, resource_root: Path) -> ComponentRegistry:
             raise RegistryError(f"{context}.resources must be a non-empty list")
         resources = tuple(
             _load_resource(
-                resource, f"{context}.resources[{resource_index}]", resource_root
+                resource, f"{context}.resources[{resource_index}]", resource_root,
+                repositories, schema_version,
             )
             for resource_index, resource in enumerate(raw_resources)
         )
         for resource in resources:
+            source_key = resource.source
+            if source_key in sources:
+                raise RegistryError(
+                    f"duplicate resource source {source_key!r} in {sources[source_key]!r} and {component_id!r}"
+                )
+            sources[source_key] = component_id
             destination_key = (resource.install_root, resource.destination)
             previous_owner = destinations.get(destination_key)
             if previous_owner is not None:
@@ -236,7 +352,7 @@ def load_registry(path: Path, resource_root: Path) -> ComponentRegistry:
                 includes=_text(component_data["includes"], f"{context}.includes"),
                 depends_on=_string_list(
                     component_data["depends_on"], f"{context}.depends_on"
-                ),
+                ) if "depends_on" in component_data else (),
                 resources=resources,
             )
         )
@@ -250,7 +366,7 @@ def load_registry(path: Path, resource_root: Path) -> ComponentRegistry:
                     f"active component {component.id!r} depends on inactive component "
                     f"{dependency!r}"
                 )
-    return ComponentRegistry(tuple(components), resource_root)
+    return ComponentRegistry(tuple(components), resource_root, repositories)
 
 
 def resolve_components(
