@@ -8,7 +8,8 @@ Run from the repository root:
 Sources under content/ are the single source of truth. Generated resource directories are
 owned entirely by this renderer: files it no longer produces are removed on write. A target
 may also declare an engine_mirror directory, which receives verbatim copies of the canonical
-installer engine modules from src/codex_orchestrator (the other files there are hand-written).
+installer engine modules from src/codex_orchestrator (the other files there are hand-written),
+and a readme_mirror path, which receives a verbatim copy of the project README.
 """
 
 from __future__ import annotations
@@ -295,15 +296,21 @@ def render_targets(repo_root: Path) -> dict[Path, dict[str, str]]:
 
 
 def mirror_targets(repo_root: Path) -> dict[Path, dict[str, str]]:
-    """Return each engine-mirror directory mapped to the engine modules it must contain."""
+    """Return each mirror directory mapped to the verbatim copies it must contain."""
     engine = repo_root / ENGINE_SOURCE
     mirrors: dict[Path, dict[str, str]] = {}
     for vocabulary in load_targets(repo_root / CONTENT_DIR).values():
         mirror = vocabulary.get("engine_mirror")
         if mirror:
-            mirrors[repo_root / str(mirror)] = {
-                name: (engine / name).read_text(encoding="utf-8") for name in ENGINE_FILES
-            }
+            mirrors.setdefault(repo_root / str(mirror), {}).update(
+                {name: (engine / name).read_text(encoding="utf-8") for name in ENGINE_FILES}
+            )
+        readme = vocabulary.get("readme_mirror")
+        if readme:
+            destination = repo_root / str(readme)
+            mirrors.setdefault(destination.parent, {})[destination.name] = (
+                repo_root / "README.md"
+            ).read_text(encoding="utf-8")
     return mirrors
 
 

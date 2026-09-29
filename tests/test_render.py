@@ -103,6 +103,11 @@ class RenderCheckTests(unittest.TestCase):
             ignore=ignore,
         )
         shutil.copytree(REPO_ROOT / CLAUDE_PACKAGE, self.root / CLAUDE_PACKAGE, ignore=ignore)
+        shutil.copy(REPO_ROOT / "README.md", self.root / "README.md")
+        shutil.copy(
+            REPO_ROOT / "packages" / "orchestrated-claude" / "README.md",
+            self.root / "packages" / "orchestrated-claude" / "README.md",
+        )
         self.output = self.root / CODEX_OUTPUT
 
     def tearDown(self) -> None:
@@ -169,6 +174,14 @@ class RenderCheckTests(unittest.TestCase):
         )
         render_resources.write(self.root)
         self.assertEqual(render_resources.check(self.root), [])
+
+    def test_claude_package_readme_mirrors_the_project_readme(self) -> None:
+        (self.root / "README.md").write_text("# Changed\n", encoding="utf-8")
+
+        self.assertEqual(
+            render_resources.check(self.root),
+            ["stale: packages/orchestrated-claude/README.md"],
+        )
 
     def test_unknown_placeholder_fails_the_render(self) -> None:
         self.edit(self.root / "content" / "agents" / "tester.md", "gate", "{{ nope }}")
