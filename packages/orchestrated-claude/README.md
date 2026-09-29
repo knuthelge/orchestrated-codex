@@ -186,16 +186,11 @@ now goes to the installed `developer` agent.
 
 ## Development
 
-Run from a checkout and execute the tests:
+Run the tests from a checkout:
 
 ```sh
-uv run main.py --codex --install --all --codex-home /path/to/test-codex-home
-uv run main.py --claude --install --all --claude-config-dir /path/to/test-claude-config
 uv run python -m unittest discover -s tests
 ```
-
-With `--codex`, skills still install under `$HOME/.agents/skills` whatever `--codex-home`
-says; set `HOME` to a scratch directory as well when you want a fully isolated test install.
 
 The repository builds both distributions from one source. `orchestrated-codex` is the
 project at the repository root; `orchestrated-claude` is a uv workspace member in
