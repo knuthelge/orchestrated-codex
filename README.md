@@ -88,14 +88,20 @@ explicitly; Codex will not select them automatically based on the request:
 
 ```text
 $orchestrated-delivery implement this feature
-$code-review review the current changes
+$orchestrated-code-review review the current changes
 ```
 
-`$code-review` writes its independently verified, prioritized findings to
+`$orchestrated-code-review` writes its independently verified, prioritized findings to
 `code-review.md`. It reviews local changes by default and uses pull-request context when
 available. Every review also tracks the mandatory ten-stage workflow and its per-finding
 validation in `.agent-work/code-review-checklist.md`. The review does not publish comments
 or modify code unless you separately ask for that action.
+
+The review skill was previously named `code-review` and invoked as `$code-review`. Updating
+an existing installation removes the old `code-review` skill directory and installs
+`orchestrated-code-review`; if you edited the old skill, your copy is preserved and reported,
+and remains available until you delete it. The component is still selected with
+`--components code-review`.
 
 The installer writes to two independent roots:
 
@@ -126,20 +132,22 @@ The bundled components are:
 - `orchestrated-delivery` (skill): task classification and an adaptive discovery, planning,
   independent plan review, implementation, testing, and final-review workflow. Installs under
   `$HOME/.agents/skills`.
-- `code-review` (skill): explicit-only review of a local diff or pull request, producing a
+- `orchestrated-code-review` (skill, component `code-review`): explicit-only review of a local diff or pull request, producing a
   comprehensive, prioritized, independently verified `code-review.md` report without a
   minimum or maximum finding count.
 - `agents/discovery.toml`: read-only codebase reconnaissance.
 - `agents/spec-designer.toml`: requirements and technical design.
 - `agents/rubber-duck.toml`: independent PRD peer review (PASS/CONCERNS).
 - `agents/ui-designer.toml`: visual design specification for substantial UI work.
+- `agents/developer.toml`: implements planned changes and fixes test or review failures,
+  returning an implementation, fix, or blocked report.
 - `agents/tester.toml`: authors and runs tests and verifies requirements (PASS/FAIL).
 - `agents/final-reviewer.toml`: read-only holistic final review.
 
 The optional third-party components are `grill-me` (including `grilling`), `handoff`,
 and `teach`. They install under `$HOME/.agents/skills` when selected.
 
-Implementation is delegated to Codex's built-in `worker`. The primary Codex thread
+Implementation is delegated to the `developer` agent. The primary Codex thread
 orchestrates the workflow and does not implement work itself. Independent delegations use
 fresh context by default and the orchestrator avoids short polling loops while waiting for
 subagent results.

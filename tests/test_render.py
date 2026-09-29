@@ -62,11 +62,11 @@ class RenderCheckTests(unittest.TestCase):
         )
 
     def test_generated_file_edit_is_detected(self) -> None:
-        self.edit(self.output / "skills" / "code-review" / "SKILL.md", "Review", "Reveiw")
+        self.edit(self.output / "skills" / "orchestrated-code-review" / "SKILL.md", "Review", "Reveiw")
 
         self.assertEqual(
             render_resources.check(self.root),
-            [f"stale: {CODEX_OUTPUT.as_posix()}/skills/code-review/SKILL.md"],
+            [f"stale: {CODEX_OUTPUT.as_posix()}/skills/orchestrated-code-review/SKILL.md"],
         )
 
     def test_missing_and_unexpected_files_are_detected(self) -> None:

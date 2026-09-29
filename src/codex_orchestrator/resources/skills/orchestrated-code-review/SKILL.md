@@ -1,6 +1,6 @@
 ---
-name: code-review
-description: Review a code change and write a prioritized, independently verified code-review.md report. Use only when the user explicitly invokes $code-review.
+name: orchestrated-code-review
+description: Review a code change and write a prioritized, independently verified code-review.md report. Use only when the user explicitly invokes $orchestrated-code-review.
 ---
 
 # Code review

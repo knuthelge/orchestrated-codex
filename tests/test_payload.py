@@ -16,6 +16,7 @@ from codex_orchestrator import cli
 
 
 EXPECTED_MODELS = {
+    "developer": "gpt-5.6-terra",
     "discovery": "gpt-6-luna",
     "final_reviewer": "gpt-6-sol",
     "rubber_duck": "gpt-6-sol",
@@ -24,20 +25,20 @@ EXPECTED_MODELS = {
     "ui_designer": "gpt-6-sol",
 }
 READ_ONLY_AGENTS = {"discovery", "final_reviewer", "rubber_duck"}
-WRITE_AGENTS = {"spec_designer", "ui_designer", "tester"}
+WRITE_AGENTS = {"spec_designer", "ui_designer", "developer", "tester"}
 AGENTS_DIR = cli.RESOURCE_ROOT / "agents"
 SKILL_MD = cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "SKILL.md"
 SKILL_OPENAI_YAML = (
     cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "agents" / "openai.yaml"
 )
-CODE_REVIEW_SKILL_MD = cli.RESOURCE_ROOT / "skills" / "code-review" / "SKILL.md"
+CODE_REVIEW_SKILL_MD = cli.RESOURCE_ROOT / "skills" / "orchestrated-code-review" / "SKILL.md"
 CODE_REVIEW_OPENAI_YAML = (
-    cli.RESOURCE_ROOT / "skills" / "code-review" / "agents" / "openai.yaml"
+    cli.RESOURCE_ROOT / "skills" / "orchestrated-code-review" / "agents" / "openai.yaml"
 )
 CODE_REVIEW_CHECKLIST = (
     cli.RESOURCE_ROOT
     / "skills"
-    / "code-review"
+    / "orchestrated-code-review"
     / "references"
     / "review-checklist-template.md"
 )
@@ -71,6 +72,7 @@ class AgentPayloadTests(unittest.TestCase):
                 "spec-designer.toml",
                 "rubber-duck.toml",
                 "ui-designer.toml",
+                "developer.toml",
                 "tester.toml",
                 "final-reviewer.toml",
             },
@@ -115,6 +117,23 @@ class AgentPayloadTests(unittest.TestCase):
                 )
         self.assertEqual(seen, READ_ONLY_AGENTS)
 
+    def test_developer_keeps_report_contract_and_prohibitions(self) -> None:
+        data = tomllib.loads((AGENTS_DIR / "developer.toml").read_text(encoding="utf-8"))
+        instructions = data["developer_instructions"]
+        self.assertEqual(data["name"], "developer")
+        self.assertEqual(data["model_reasoning_effort"], "high")
+        for heading in ("## Implementation Report", "## Fix Report", "## Blocked Report"):
+            self.assertIn(heading, instructions)
+        for rule in (
+            "Do not spawn subagents or delegate work.",
+            "Do not write tests; that is the job of `tester`.",
+            "Do not refactor in fix mode",
+            "report the visual check as not performed",
+        ):
+            self.assertIn(rule, instructions)
+        for copilot_only in ("askQuestions", "ddg-search", "vscode"):
+            self.assertNotIn(copilot_only, instructions)
+
     def test_rubber_duck_and_tester_names(self) -> None:
         rubber = tomllib.loads((AGENTS_DIR / "rubber-duck.toml").read_text(encoding="utf-8"))
         tester = tomllib.loads((AGENTS_DIR / "tester.toml").read_text(encoding="utf-8"))
@@ -158,17 +177,26 @@ class SkillPayloadTests(unittest.TestCase):
         self.assertIn("A timeout alone does not mean a subagent is stalled.", normalized)
 
     def test_body_contains_never_stop_clause(self) -> None:  # SC-5 / SC-7
-        self.assertIn("askQuestions", self.body)
+        self.assertIn("a structured user question", self.body)
+        self.assertNotIn("askQuestions", self.body)
         self.assertIn("Stopping is a failure state", self.body)
         self.assertIn("free-text option", self.body)
 
     def test_body_contains_delegation_doctrine(self) -> None:  # SC-7
         self.assertIn("orchestrate only", self.body.lower())
-        self.assertIn("worker", self.body)
+        self.assertIn("Implementation is delegated to `developer`", self.body)
+        self.assertNotRegex(self.body, r"\bworker\b")
 
     def test_body_contains_model_routing(self) -> None:  # SC-7
         for model in ("gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"):
             self.assertIn(model, self.body)
+        normalized = " ".join(self.body.split())
+        self.assertIn(
+            "`gpt-6-sol` for demanding planning, design, and holistic review "
+            "(`final_reviewer`, `rubber_duck`, `spec_designer`, and `ui_designer`)",
+            normalized,
+        )
+        self.assertIn("(`developer` and `tester`)", normalized)
         self.assertNotRegex(
             self.body,
             r"(?<![-.\w])gpt-5\.6(?![-.\w])",
@@ -188,11 +216,13 @@ class CodeReviewSkillPayloadTests(unittest.TestCase):
         self.normalized_body = " ".join(self.body.split())
 
     def test_frontmatter_and_explicit_invocation_policy(self) -> None:
-        self.assertEqual(self.frontmatter.get("name"), "code-review")
-        self.assertIn("explicitly invokes $code-review", self.frontmatter.get("description", ""))
+        self.assertEqual(self.frontmatter.get("name"), "orchestrated-code-review")
+        self.assertIn(
+            "explicitly invokes $orchestrated-code-review", self.frontmatter.get("description", "")
+        )
         metadata = CODE_REVIEW_OPENAI_YAML.read_text(encoding="utf-8")
         self.assertIn("default_prompt:", metadata)
-        self.assertIn("$code-review", metadata)
+        self.assertIn("$orchestrated-code-review", metadata)
         self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
 
     def test_review_scope_and_authorization_boundaries(self) -> None:

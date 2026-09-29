@@ -1,3 +1,4 @@
+# Generated from content/agents/final-reviewer.md by scripts/render_resources.py; do not edit.
 name = "final_reviewer"
 description = "Read-only holistic reviewer for substantial completed changes, focused on correctness, integration, security, regressions, missing tests, and requirement coverage."
 model = "gpt-6-sol"
