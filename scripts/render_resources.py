@@ -5,8 +5,10 @@ Run from the repository root:
     uv run scripts/render_resources.py          # write every target's generated resources
     uv run scripts/render_resources.py --check  # fail when committed output is stale
 
-Sources under content/ are the single source of truth. Generated directories are owned
-entirely by this renderer: files it no longer produces are removed on write.
+Sources under content/ are the single source of truth. Generated resource directories are
+owned entirely by this renderer: files it no longer produces are removed on write. A target
+may also declare an engine_mirror directory, which receives verbatim copies of the canonical
+installer engine modules from src/codex_orchestrator (the other files there are hand-written).
 """
 
 from __future__ import annotations
@@ -24,6 +26,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONTENT_DIR = "content"
 AGENT_TIERS = frozenset({"deep", "standard", "fast"})
+ENGINE_SOURCE = "src/codex_orchestrator"
+ENGINE_FILES = ("__main__.py", "cli.py", "registry.py", "sources.py", "target.py")
+CLAUDE_EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
 
 
 class RenderError(RuntimeError):
@@ -159,15 +164,19 @@ class Renderer:
             name = f"agents/{agent.stem}{self.vocabulary['agent_ext']}"
             if agent_format == "codex":
                 files[name] = self.codex_agent(agent, body, source)
+            elif agent_format == "claude":
+                files[name] = self.claude_agent(agent, body, source)
             else:
                 raise RenderError(f"{self.target}: unknown agent_format {agent_format!r}")
         for skill in self.skills:
             name = self.context["skills"][snake(skill.stem)]
             source = f"skills/{skill.stem}/SKILL.md"
             description = self.render(str(skill.meta["description"]), source)
+            skill_meta: dict[str, str | bool] = {"name": name, "description": description}
+            if agent_format == "claude" and skill.meta.get("explicit_only"):
+                skill_meta["disable-model-invocation"] = True
             files[f"skills/{name}/SKILL.md"] = (
-                frontmatter({"name": name, "description": description}, source)
-                + self.render(skill.body, source)
+                frontmatter(skill_meta, source) + self.render(skill.body, source)
             )
             if agent_format == "codex":
                 metadata = self.codex_skill_metadata(skill, source)
@@ -197,6 +206,21 @@ class Renderer:
             lines.append('sandbox_mode = "read-only"')
         lines.append(f'developer_instructions = """\n{body}"""')
         return "\n".join(lines) + "\n"
+
+    def claude_agent(self, agent: Agent, body: str, source: str) -> str:
+        # Delegation belongs to the orchestrating main thread, so no agent may spawn its own
+        # subagents; read-only agents also lose the file-editing tools.
+        disallowed = ["Agent"]
+        if agent.meta.get("read_only"):
+            disallowed.extend(CLAUDE_EDIT_TOOLS)
+        values = {
+            "name": self.agent_name(agent.stem),
+            "description": self.render(str(agent.meta["description"]), source),
+            "model": self.agent_model(agent),
+            "effort": str(agent.meta["effort"]),
+            "disallowedTools": ", ".join(disallowed),
+        }
+        return frontmatter(values, source) + "\n" + body
 
     def codex_skill_metadata(self, skill: Skill, source: str) -> str | None:
         display = skill.meta.get("display")
@@ -235,11 +259,20 @@ def basic_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def frontmatter(values: Mapping[str, str], source: str) -> str:
-    """Emit plain-scalar frontmatter, refusing values YAML would read back differently."""
-    text = "".join(f"{key}: {value}\n" for key, value in values.items())
+def frontmatter(values: Mapping[str, str | bool], source: str) -> str:
+    """Emit frontmatter with plain scalars, quoting only values YAML would misread."""
+    lines = []
+    for key, value in values.items():
+        if isinstance(value, bool):
+            scalar = "true" if value else "false"
+        elif yaml.safe_load(f"{key}: {value}\n") == {key: value}:
+            scalar = value
+        else:
+            scalar = basic_string(value)
+        lines.append(f"{key}: {scalar}\n")
+    text = "".join(lines)
     if yaml.safe_load(text) != dict(values):
-        raise RenderError(f"{source}: frontmatter values need quoting: {dict(values)}")
+        raise RenderError(f"{source}: cannot represent frontmatter {dict(values)}")
     return f"---\n{text}---\n"
 
 
@@ -259,6 +292,19 @@ def render_targets(repo_root: Path) -> dict[Path, dict[str, str]]:
         output = repo_root / str(vocabulary["output"])
         outputs[output] = Renderer(content_root, target, vocabulary).render_all()
     return outputs
+
+
+def mirror_targets(repo_root: Path) -> dict[Path, dict[str, str]]:
+    """Return each engine-mirror directory mapped to the engine modules it must contain."""
+    engine = repo_root / ENGINE_SOURCE
+    mirrors: dict[Path, dict[str, str]] = {}
+    for vocabulary in load_targets(repo_root / CONTENT_DIR).values():
+        mirror = vocabulary.get("engine_mirror")
+        if mirror:
+            mirrors[repo_root / str(mirror)] = {
+                name: (engine / name).read_text(encoding="utf-8") for name in ENGINE_FILES
+            }
+    return mirrors
 
 
 def existing_files(output: Path) -> set[str]:
@@ -282,6 +328,14 @@ def check(repo_root: Path = REPO_ROOT) -> list[str]:
         for name, text in sorted(files.items()):
             path = output / name
             if name not in on_disk:
+                problems.append(f"missing: {label}/{name}")
+            elif path.read_bytes() != text.encode("utf-8"):
+                problems.append(f"stale: {label}/{name}")
+    for mirror, files in mirror_targets(repo_root).items():
+        label = mirror.relative_to(repo_root).as_posix()
+        for name, text in sorted(files.items()):
+            path = mirror / name
+            if not path.is_file():
                 problems.append(f"missing: {label}/{name}")
             elif path.read_bytes() != text.encode("utf-8"):
                 problems.append(f"stale: {label}/{name}")
@@ -311,6 +365,16 @@ def write(repo_root: Path = REPO_ROOT) -> list[str]:
         ):
             if not any(directory.iterdir()):
                 directory.rmdir()
+    for mirror, files in mirror_targets(repo_root).items():
+        label = mirror.relative_to(repo_root).as_posix()
+        for name, text in sorted(files.items()):
+            path = mirror / name
+            data = text.encode("utf-8")
+            if path.is_file() and path.read_bytes() == data:
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            changed.append(f"wrote: {label}/{name}")
     return changed
 
 

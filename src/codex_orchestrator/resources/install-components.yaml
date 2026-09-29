@@ -22,37 +22,37 @@ components:
       - source:
           kind: bundled
           path: agents/discovery.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/discovery.toml
       - source:
           kind: bundled
           path: agents/spec-designer.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/spec-designer.toml
       - source:
           kind: bundled
           path: agents/rubber-duck.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/rubber-duck.toml
       - source:
           kind: bundled
           path: agents/ui-designer.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/ui-designer.toml
       - source:
           kind: bundled
           path: agents/developer.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/developer.toml
       - source:
           kind: bundled
           path: agents/tester.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/tester.toml
       - source:
           kind: bundled
           path: agents/final-reviewer.toml
-        install_root: codex_home
+        install_root: config_home
         destination: agents/final-reviewer.toml
 
   - id: code-review

@@ -11,6 +11,9 @@ subagent a scoped digest of the plan and a
 discovery impact map so work proceeds without re-reading whole artifacts, keeping runs fast
 and cheap under the same phased contract.
 
+The same workflow is available for Claude Code as `orchestrated-claude`, built from this
+repository; see [its README](packages/orchestrated-claude/README.md).
+
 ## Installation
 
 Install with [uv](https://docs.astral.sh/uv/):
@@ -161,14 +164,33 @@ uv run main.py --install --all --codex-home /path/to/test-home
 uv run python -m unittest discover -s tests
 ```
 
+This repository builds two distributions from one source: `orchestrated-codex` (the
+project at the repository root) and `orchestrated-claude` (a uv workspace member in
+`packages/orchestrated-claude`), which installs the same workflow for Claude Code.
+
 Skills, agents, and the component registry are authored once under `content/` and
-rendered into `src/codex_orchestrator/resources/`, which is generated: edit `content/`,
-never the generated files. `content/targets.yaml` holds each harness's vocabulary (model
-tiers, agent naming, invocation prefix); sources reference it through Jinja placeholders
-such as `{{ agents.tester }}` and `{{ invoke }}{{ skills.code_review }}`. Agent sources are
-Markdown with `description`, `tier`, `effort`, and `read_only` frontmatter and the
-instructions as the body. Re-render after editing, and commit the result; the test suite
-fails when committed output is stale:
+rendered into each harness's native format:
+
+- `src/codex_orchestrator/resources/`: Codex agent TOML files, skills, and `openai.yaml`
+  skill metadata.
+- `packages/orchestrated-claude/src/claude_orchestrator/resources/`: Claude Code agent
+  Markdown files and skills.
+
+Both resource directories are generated: edit `content/`, never the generated files.
+`content/targets.yaml` holds each harness's vocabulary (model tiers, agent naming,
+invocation prefix, ask-the-user wording); sources reference it through Jinja placeholders
+such as `{{ agents.tester }}`, `{{ product }}`, and `{{ invoke }}{{ skills.code_review }}`.
+Use a `{% if target == "codex" %}` block only where the harnesses behave differently, not
+merely where they name things differently. Agent sources are Markdown with `description`,
+`tier` (`deep`, `standard`, or `fast`), `effort`, and `read_only` frontmatter and the
+instructions as the body; an optional `model:` mapping overrides the tier model per target.
+
+The installer engine (`cli.py`, `registry.py`, `sources.py`, `target.py`, `__main__.py`) is
+authored in `src/codex_orchestrator/` and copied verbatim into the Claude package by the
+renderer. Everything that differs between harnesses lives in `target.py`; each package's
+hand-written `_active.py` selects its target. Re-render after editing either sources or the
+engine, and commit the result; the test suite and the release workflow fail when committed
+output is stale:
 
 ```sh
 uv run scripts/render_resources.py          # regenerate
@@ -208,11 +230,19 @@ must remain relative to packaged resources; GitHub source paths must remain rela
 their cataloged repository. All destinations must remain under a supported installation
 root.
 
-Build the wheel and source distribution and inspect them:
+Build the wheels and source distributions and inspect them:
 
 ```sh
-uv build
+uv build --out-dir dist/codex
+uv build --out-dir dist/claude packages/orchestrated-claude
 ```
 
 The PyPI distribution and command are both named `orchestrated-codex`. The importable
-Python module remains `codex_orchestrator` for compatibility.
+Python module remains `codex_orchestrator` for compatibility. The Claude Code distribution
+and command are named `orchestrated-claude`, with module `claude_orchestrator`.
+
+Both packages share one version. Update `version` in both `pyproject.toml` files and
+`__version__` in both packages together; a `vX.Y.Z` tag builds, tests, and smoke-tests both
+distributions and publishes both to PyPI. To rehearse a release, run the publish workflow
+manually with `testpypi` enabled at a unique pre-release version such as `X.Y.Zrc1`; it
+publishes both packages to TestPyPI instead.
