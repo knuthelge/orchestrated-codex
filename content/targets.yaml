@@ -18,6 +18,7 @@ codex:
 claude:
   output: packages/orchestrated-claude/src/claude_orchestrator/resources
   engine_mirror: packages/orchestrated-claude/src/claude_orchestrator
+  readme_mirror: packages/orchestrated-claude/README.md
   product: Claude Code
   invoke: "/"
   ask_user: a structured user question (the AskUserQuestion tool)
