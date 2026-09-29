@@ -16,9 +16,10 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-from codex_orchestrator import cli
-from codex_orchestrator.registry import load_registry
-from codex_orchestrator.sources import GitHubSourceResolver
+import support
+from orchestrated import cli
+from orchestrated.registry import load_registry
+from orchestrated.sources import GitHubSourceResolver
 
 
 class _TTYOutput(io.StringIO):
@@ -83,12 +84,15 @@ class _ControlledSpinnerThread:
         self.joined = True
 
 
-class InstallerTests(unittest.TestCase):
+class InstallerTests(support.TargetMixin):
     def setUp(self) -> None:
+        super().setUp()
         self.temporary_directory = tempfile.TemporaryDirectory()
         base = Path(self.temporary_directory.name)
-        self.agents_root = base / "codex-home"
-        self.skill_root = base / "home" / ".agents" / "skills"
+        # Each target's real layout: Codex keeps skills under $HOME, while Claude Code nests
+        # them inside its config home.
+        self.agents_root = base / "config-home"
+        self.skill_root = self.expected_skill_root(base / "home", self.agents_root)
         self.agents_root.mkdir(parents=True)
         self.skill_root.mkdir(parents=True)
 
@@ -133,35 +137,39 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(cli.install(self.agents_root, self.skill_root), 0)
 
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(set(manifest["files"]), {path.as_posix() for path in expected})
         for destination, source in expected.items():
             self.assertEqual(destination.read_bytes(), source.read_bytes())
 
-        # SC-1: skills land directly under $HOME/.agents/skills.
+        # SC-1: skills land directly under the skills root.
         delivery_skill_dir = self.skill_root / "orchestrated-delivery"
         self.assertTrue((delivery_skill_dir / "SKILL.md").is_file())
-        self.assertTrue((delivery_skill_dir / "agents" / "openai.yaml").is_file())
+        self.assertEqual(
+            (delivery_skill_dir / "agents" / "openai.yaml").is_file(), self.skill_metadata
+        )
         self.assertTrue((delivery_skill_dir / "references").is_dir())
         review_skill_dir = self.skill_root / "orchestrated-code-review"
         self.assertTrue((review_skill_dir / "SKILL.md").is_file())
-        self.assertTrue((review_skill_dir / "agents" / "openai.yaml").is_file())
+        self.assertEqual(
+            (review_skill_dir / "agents" / "openai.yaml").is_file(), self.skill_metadata
+        )
         self.assertTrue(
             (review_skill_dir / "references" / "review-checklist-template.md").is_file()
         )
 
-        # SC-2: agents land under <codex-home>/agents.
+        # SC-2: agents land under <config home>/agents.
         for name in (
-            "discovery.toml",
-            "spec-designer.toml",
-            "rubber-duck.toml",
-            "ui-designer.toml",
-            "developer.toml",
-            "tester.toml",
-            "final-reviewer.toml",
+            "discovery",
+            "spec-designer",
+            "rubber-duck",
+            "ui-designer",
+            "developer",
+            "tester",
+            "final-reviewer",
         ):
-            self.assertTrue((self.agents_root / "agents" / name).is_file())
+            self.assertTrue((self.agents_root / "agents" / f"{name}{self.agent_ext}").is_file())
         self.assertFalse((self.agents_root / "agents" / "verifier.toml").exists())
 
     def test_directory_symlink_installation_roots_support_install_reinstall_and_uninstall(self) -> None:
@@ -185,7 +193,7 @@ class InstallerTests(unittest.TestCase):
 
                 self.assertEqual(cli.install(agents_root, skill_root), 0)
                 self.assertEqual(cli.install(agents_root, skill_root), 0)
-                self.assertTrue((agents_root / "agents" / "discovery.toml").is_file())
+                self.assertTrue((agents_root / "agents" / f"discovery{self.agent_ext}").is_file())
                 self.assertTrue((skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
                 self.assertEqual(cli.uninstall(agents_root, skill_root), 0)
                 self.assertTrue((agents_root if linked_root == "codex-home" else skill_root).is_symlink())
@@ -250,7 +258,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(cli.uninstall(self.agents_root, self.skill_root), 0)
 
-        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertFalse((self.agents_root / cli.manifest_name()).exists())
         for destination in expected:
             self.assertFalse(destination.exists())
         self.assertFalse((self.skill_root / "orchestrated-delivery").exists())
@@ -263,7 +271,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(cli.install(self.agents_root, self.skill_root), 2)
         self.assertEqual(destination.read_text(encoding="utf-8"), "user content")
-        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertFalse((self.agents_root / cli.manifest_name()).exists())
 
     def test_install_refuses_foreign_skill_file(self) -> None:
         destination = self.skill_root / "orchestrated-delivery" / "SKILL.md"
@@ -272,7 +280,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(cli.install(self.agents_root, self.skill_root), 2)
         self.assertEqual(destination.read_text(encoding="utf-8"), "user skill")
-        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertFalse((self.agents_root / cli.manifest_name()).exists())
 
     def test_uninstall_preserves_modified_file_and_manifest(self) -> None:
         self.assertEqual(cli.install(self.agents_root, self.skill_root), 0)
@@ -281,17 +289,17 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(cli.uninstall(self.agents_root, self.skill_root), 2)
         self.assertEqual(destination.read_text(encoding="utf-8"), "locally modified")
-        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertTrue((self.agents_root / cli.manifest_name()).exists())
 
     def test_uninstall_rejects_matching_absolute_path_outside_installation_roots(
         self,
     ) -> None:
         victim = self.agents_root.parent / "unrelated-file"
         victim.write_text("do not delete", encoding="utf-8")
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 2,
                     "files": {
                         victim.as_posix(): hashlib.sha256(
@@ -307,17 +315,17 @@ class InstallerTests(unittest.TestCase):
             cli.uninstall(self.agents_root, self.skill_root)
 
         self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
-        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertTrue((self.agents_root / cli.manifest_name()).exists())
 
     def test_reinstall_rejects_matching_absolute_obsolete_path_outside_roots(
         self,
     ) -> None:
         victim = self.agents_root.parent / "obsolete-unrelated-file"
         victim.write_text("do not delete", encoding="utf-8")
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 2,
                     "files": {
                         victim.as_posix(): hashlib.sha256(
@@ -333,7 +341,7 @@ class InstallerTests(unittest.TestCase):
             cli.install(self.agents_root, self.skill_root)
 
         self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
-        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertTrue((self.agents_root / cli.manifest_name()).exists())
 
     def test_uninstall_supports_current_absolute_entries_under_both_roots(self) -> None:
         agent_file = self.agents_root / "agents" / "owned.toml"
@@ -342,10 +350,10 @@ class InstallerTests(unittest.TestCase):
         skill_file.parent.mkdir(parents=True)
         agent_file.write_text("owned agent", encoding="utf-8")
         skill_file.write_text("owned skill", encoding="utf-8")
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 2,
                     "files": {
                         agent_file.as_posix(): hashlib.sha256(
@@ -364,7 +372,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertFalse(agent_file.exists())
         self.assertFalse(skill_file.exists())
-        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertFalse((self.agents_root / cli.manifest_name()).exists())
 
     def test_uninstall_rejects_relative_traversal_and_prefix_confusion(self) -> None:
         traversal_victim = self.agents_root.parent / "traversal-victim"
@@ -380,10 +388,10 @@ class InstallerTests(unittest.TestCase):
             (prefix_victim.as_posix(), prefix_victim),
         ):
             with self.subTest(key=key):
-                (self.agents_root / cli.MANIFEST_NAME).write_text(
+                (self.agents_root / cli.manifest_name()).write_text(
                     json.dumps(
                         {
-                            "installer": "codex-orchestrator",
+                            "installer": cli.target().installer_id,
                             "version": 2,
                             "files": {
                                 key: hashlib.sha256(victim.read_bytes()).hexdigest()
@@ -399,7 +407,7 @@ class InstallerTests(unittest.TestCase):
                     cli.uninstall(self.agents_root, self.skill_root)
 
                 self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
-                self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+                self.assertTrue((self.agents_root / cli.manifest_name()).exists())
 
     def test_uninstall_rejects_path_escaping_via_symlinked_parent(self) -> None:
         outside_directory = self.agents_root.parent / "outside"
@@ -409,10 +417,10 @@ class InstallerTests(unittest.TestCase):
         link = self.agents_root / "linked-agents"
         link.symlink_to(outside_directory, target_is_directory=True)
         escaped_path = link / victim.name
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 2,
                     "files": {
                         escaped_path.as_posix(): hashlib.sha256(
@@ -428,16 +436,16 @@ class InstallerTests(unittest.TestCase):
             cli.uninstall(self.agents_root, self.skill_root)
 
         self.assertEqual(victim.read_text(encoding="utf-8"), "do not delete")
-        self.assertTrue((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertTrue((self.agents_root / cli.manifest_name()).exists())
 
     def test_uninstall_supports_legacy_relative_entry_under_agents_root(self) -> None:
         owned_file = self.agents_root / "agents" / "legacy-owned.toml"
         owned_file.parent.mkdir(parents=True)
         owned_file.write_text("legacy owned", encoding="utf-8")
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 1,
                     "files": {
                         "agents/legacy-owned.toml": hashlib.sha256(
@@ -452,17 +460,17 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(cli.uninstall(self.agents_root, self.skill_root), 0)
 
         self.assertFalse(owned_file.exists())
-        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertFalse((self.agents_root / cli.manifest_name()).exists())
 
     def test_reinstall_removes_unchanged_obsolete_file(self) -> None:
         obsolete = self.agents_root / "agents" / "obsolete.toml"
         obsolete.parent.mkdir(parents=True)
         obsolete.write_text("old", encoding="utf-8")
         recorded = hashlib.sha256(obsolete.read_bytes()).hexdigest()
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 1,
                     "files": {"agents/obsolete.toml": recorded},
                 }
@@ -474,6 +482,8 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(obsolete.exists())
 
     def test_reinstall_removes_legacy_verifier_and_legacy_skill(self) -> None:
+        if self.target.skills_under_config_home:
+            self.skipTest("migrates the legacy Codex layout, where skills lived in the Codex home")
         # Simulate a prior install: verifier.toml plus the skill under <codex-home>/skills.
         legacy_verifier = self.agents_root / "agents" / "verifier.toml"
         legacy_skill = (
@@ -484,7 +494,7 @@ class InstallerTests(unittest.TestCase):
         legacy_verifier.write_text("old verifier", encoding="utf-8")
         legacy_skill.write_text("old skill", encoding="utf-8")
         manifest = {
-            "installer": "codex-orchestrator",
+            "installer": cli.target().installer_id,
             "version": 1,
             "files": {
                 "agents/verifier.toml": hashlib.sha256(
@@ -495,7 +505,7 @@ class InstallerTests(unittest.TestCase):
                 ).hexdigest(),
             },
         }
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(manifest), encoding="utf-8"
         )
 
@@ -508,16 +518,18 @@ class InstallerTests(unittest.TestCase):
         )
 
     def test_reinstall_preserves_modified_legacy_skill(self) -> None:
+        if self.target.skills_under_config_home:
+            self.skipTest("migrates the legacy Codex layout, where skills lived in the Codex home")
         legacy_skill = (
             self.agents_root / "skills" / "orchestrated-delivery" / "SKILL.md"
         )
         legacy_skill.parent.mkdir(parents=True, exist_ok=True)
         legacy_skill.write_text("recorded", encoding="utf-8")
         recorded = hashlib.sha256(legacy_skill.read_bytes()).hexdigest()
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 1,
                     "files": {"skills/orchestrated-delivery/SKILL.md": recorded},
                 }
@@ -532,7 +544,7 @@ class InstallerTests(unittest.TestCase):
         )
 
     def test_foreign_manifest_is_rejected(self) -> None:
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps({"installer": "some-other-tool", "files": {}}),
             encoding="utf-8",
         )
@@ -545,24 +557,19 @@ class InstallerTests(unittest.TestCase):
         home = base / "env-home"
         codex_home = base / "env-codex"
         home.mkdir()
-        env = {"HOME": str(home), "CODEX_HOME": str(codex_home)}
+        env = {"HOME": str(home), self.target.home_env: str(codex_home)}
         with unittest.mock.patch.dict("os.environ", env, clear=False):
             self.assertEqual(cli.main(["--install", "--all"]), 0)
 
-        self.assertTrue(
-            (
-                home / ".agents" / "skills" / "orchestrated-delivery" / "SKILL.md"
-            ).is_file()
-        )
-        self.assertTrue(
-            (home / ".agents" / "skills" / "orchestrated-code-review" / "SKILL.md").is_file()
-        )
-        self.assertTrue((codex_home / "agents" / "tester.toml").is_file())
+        skill_root = self.expected_skill_root(home, codex_home)
+        self.assertTrue((skill_root / "orchestrated-delivery" / "SKILL.md").is_file())
+        self.assertTrue((skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
+        self.assertTrue((codex_home / "agents" / f"tester{self.agent_ext}").is_file())
 
     def legacy_code_review_registry(self):
         """The packaged registry as released before the skill became orchestrated-code-review."""
         legacy_root = Path(self.temporary_directory.name) / "legacy-resources"
-        shutil.copytree(cli.RESOURCE_ROOT, legacy_root)
+        shutil.copytree(cli.resource_root(), legacy_root)
         (legacy_root / "skills" / "orchestrated-code-review").rename(
             legacy_root / "skills" / "code-review"
         )
@@ -587,7 +594,7 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.skill_root / "code-review").exists())
         self.assertTrue((self.skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
         manifest = json.loads(
-            (self.agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8")
+            (self.agents_root / cli.manifest_name()).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["components"], ["code-review"])
 
@@ -613,7 +620,7 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.skill_root / "orchestrated-delivery").exists())
         self.assertFalse((self.agents_root / "agents").exists())
         manifest = json.loads(
-            (self.agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8")
+            (self.agents_root / cli.manifest_name()).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["version"], 4)
         self.assertEqual(manifest["components"], ["code-review"])
@@ -654,7 +661,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(modified.read_text(encoding="utf-8"), "locally modified")
         manifest = json.loads(
-            (self.agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8")
+            (self.agents_root / cli.manifest_name()).read_text(encoding="utf-8")
         )
         self.assertIn(modified.as_posix(), manifest["files"])
         self.assertEqual(manifest["components"], ["code-review"])
@@ -666,13 +673,14 @@ class InstallerTests(unittest.TestCase):
         home.mkdir()
         with unittest.mock.patch.dict(
             "os.environ",
-            {"HOME": str(home), "CODEX_HOME": str(codex_home)},
+            {"HOME": str(home), self.target.home_env: str(codex_home)},
             clear=False,
         ):
             self.assertEqual(cli.main(["--install", "--components", "code-review"]), 0)
 
-        self.assertTrue((home / ".agents/skills/orchestrated-code-review/SKILL.md").is_file())
-        self.assertFalse((home / ".agents/skills/orchestrated-delivery").exists())
+        skill_root = self.expected_skill_root(home, codex_home)
+        self.assertTrue((skill_root / "orchestrated-code-review/SKILL.md").is_file())
+        self.assertFalse((skill_root / "orchestrated-delivery").exists())
         self.assertFalse((codex_home / "agents").exists())
 
     def test_plain_install_requires_tty(self) -> None:
@@ -725,6 +733,7 @@ class InstallerTests(unittest.TestCase):
         ]
         self.assertFalse(selectable_choices[0].checked)
         self.assertTrue(selectable_choices[1].checked)
+        metadata = " + agent metadata" if self.skill_metadata else ""
         rendered_titles = [
             "".join(fragment for _, fragment in choice.title)
             for choice in selectable_choices
@@ -734,9 +743,9 @@ class InstallerTests(unittest.TestCase):
             [
                 "Orchestrated delivery - Skill + 7 custom agents.",
                 "Code review - Skill + supporting references.",
-                "Grill me - 2 skills + agent metadata. (3rd party)",
-                "Handoff - Skill + agent metadata. (3rd party)",
-                "Teach - Skill + 4 format guides + agent metadata. (3rd party)",
+                f"Grill me - 2 skills{metadata}. (3rd party)",
+                f"Handoff - Skill{metadata}. (3rd party)",
+                f"Teach - Skill + 4 format guides{metadata}. (3rd party)",
             ],
         )
         self.assertIs(checkbox.call_args.kwargs["style"], cli.INSTALLER_STYLE)
@@ -861,7 +870,7 @@ class InstallerTests(unittest.TestCase):
         home = base / "active-home"
         codex_home = base / "active-codex"
         home.mkdir()
-        environment = {"HOME": str(home), "CODEX_HOME": str(codex_home)}
+        environment = {"HOME": str(home), self.target.home_env: str(codex_home)}
         with (
             unittest.mock.patch.dict("os.environ", environment, clear=False),
             unittest.mock.patch.object(cli, "default_registry", return_value=registry),
@@ -873,22 +882,21 @@ class InstallerTests(unittest.TestCase):
                     cli.main(["--install", "--components", "code-review"]), 2
                 )
 
-        self.assertTrue(
-            (home / ".agents/skills/orchestrated-delivery/SKILL.md").is_file()
-        )
-        self.assertFalse((home / ".agents/skills/code-review").exists())
+        skill_root = self.expected_skill_root(home, codex_home)
+        self.assertTrue((skill_root / "orchestrated-delivery/SKILL.md").is_file())
+        self.assertFalse((skill_root / "orchestrated-code-review").exists())
         self.assertIn("argument --components: inactive component ID", error.getvalue())
 
     def test_unknown_named_component_is_an_argument_error(self) -> None:
         result = subprocess.run(
             [
                 sys.executable,
-                "-m",
-                "codex_orchestrator",
+                str(support.REPO_ROOT / "main.py"),
+                f"--{self.target_name}",
                 "--install",
                 "--components",
                 "code-reveiw",
-                "--codex-home",
+                self.target.home_flag,
                 str(self.agents_root),
             ],
             check=False,
@@ -902,7 +910,7 @@ class InstallerTests(unittest.TestCase):
             "argument --components: unknown component ID(s): code-reveiw",
             result.stderr,
         )
-        self.assertFalse((self.agents_root / cli.MANIFEST_NAME).exists())
+        self.assertFalse((self.agents_root / cli.manifest_name()).exists())
 
     def test_grill_me_installs_companion_and_deselect_preserves_modified_companion(
         self,
@@ -919,7 +927,7 @@ class InstallerTests(unittest.TestCase):
         grilling = self.skill_root / "grilling" / "SKILL.md"
         self.assertTrue(grill.is_file())
         self.assertTrue(grilling.is_file())
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(manifest["components"], ["grill-me"])
         for path in (grill, grilling):
@@ -960,7 +968,7 @@ class InstallerTests(unittest.TestCase):
             cli, "GitHubSourceResolver", return_value=resolver
         ):
             self.assertEqual(cli.install(self.agents_root, self.skill_root, ("handoff",)), 0)
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         before = json.loads(manifest_path.read_text(encoding="utf-8"))
         remote_paths = {
             key for key, entry in before["file_provenance"].items()
@@ -968,10 +976,10 @@ class InstallerTests(unittest.TestCase):
         }
         self.assertTrue(remote_paths)
 
-        home = self.skill_root.parent.parent
+        home = Path(self.temporary_directory.name) / "home"
         with (
             unittest.mock.patch.dict(
-                "os.environ", {"HOME": str(home), "CODEX_HOME": str(self.agents_root)}, clear=False
+                "os.environ", {"HOME": str(home), self.target.home_env: str(self.agents_root)}, clear=False
             ),
             unittest.mock.patch.object(
                 cli, "GitHubSourceResolver", side_effect=AssertionError("network used")
@@ -994,14 +1002,18 @@ class InstallerTests(unittest.TestCase):
             {key: before["file_provenance"][key] for key in remote_paths},
         )
 
+    def remote_files(self, paths: set[Path]) -> set[Path]:
+        """Third-party files the target fetches: openai.yaml metadata only where it is used."""
+        return {path for path in paths if self.skill_metadata or path.name != "openai.yaml"}
+
     def test_explicit_remote_component_and_include_third_party_materialize_requested_sources(
         self,
     ) -> None:
-        home = self.skill_root.parent.parent
+        home = Path(self.temporary_directory.name) / "home"
         resolver = self.remote_resolver()
         with (
             unittest.mock.patch.dict(
-                "os.environ", {"HOME": str(home), "CODEX_HOME": str(self.agents_root)}, clear=False
+                "os.environ", {"HOME": str(home), self.target.home_env: str(self.agents_root)}, clear=False
             ),
             unittest.mock.patch.object(
                 cli, "GitHubSourceResolver", return_value=resolver
@@ -1013,12 +1025,12 @@ class InstallerTests(unittest.TestCase):
         requested = [
             set(call.args[1]) for call in resolver.materialize.call_args_list
         ]
-        self.assertIn({
+        self.assertIn(self.remote_files({
             Path("skills/productivity/handoff/SKILL.md"),
             Path("skills/productivity/handoff/agents/openai.yaml"),
-        }, requested)
+        }), requested)
         self.assertIn(
-            {
+            self.remote_files({
                 Path("skills/productivity/grill-me/SKILL.md"),
                 Path("skills/productivity/grill-me/agents/openai.yaml"),
                 Path("skills/productivity/grilling/SKILL.md"),
@@ -1031,7 +1043,7 @@ class InstallerTests(unittest.TestCase):
                 Path("skills/productivity/teach/MISSION-FORMAT.md"),
                 Path("skills/productivity/teach/RESOURCES-FORMAT.md"),
                 Path("skills/productivity/teach/agents/openai.yaml"),
-            },
+            }),
             requested,
         )
 
@@ -1050,26 +1062,28 @@ class InstallerTests(unittest.TestCase):
 
         with unittest.mock.patch.object(
             cli, "GitHubSourceResolver",
-            side_effect=lambda: GitHubSourceResolver(fetch=fetch),
+            side_effect=lambda **_: GitHubSourceResolver(fetch=fetch),
         ):
             self.assertEqual(cli.install(self.agents_root, self.skill_root, ("handoff",)), 0)
 
-        self.assertEqual(len(requests), 3)
+        self.assertEqual(len(requests), 3 if self.skill_metadata else 2)
         self.assertEqual(requests[0], "https://api.github.com/repos/mattpocock/skills/git/ref/heads/main")
         skill = self.skill_root / "handoff" / "SKILL.md"
         agent = self.skill_root / "handoff" / "agents" / "openai.yaml"
         self.assertEqual(skill.read_text(encoding="utf-8"), "contents of SKILL.md\n")
-        self.assertEqual(agent.read_text(encoding="utf-8"), "contents of openai.yaml\n")
-        manifest = json.loads((self.agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8"))
+        manifest = json.loads((self.agents_root / cli.manifest_name()).read_text(encoding="utf-8"))
         self.assertEqual(manifest["file_provenance"][skill.as_posix()]["sha"], commit)
-        self.assertEqual(
-            manifest["file_provenance"][agent.as_posix()]["path"],
-            "skills/productivity/handoff/agents/openai.yaml",
-        )
+        self.assertEqual(agent.exists(), self.skill_metadata)
+        if self.skill_metadata:
+            self.assertEqual(agent.read_text(encoding="utf-8"), "contents of openai.yaml\n")
+            self.assertEqual(
+                manifest["file_provenance"][agent.as_posix()]["path"],
+                "skills/productivity/handoff/agents/openai.yaml",
+            )
 
     def test_remote_preflight_failure_leaves_bundled_files_and_manifest_unchanged(self) -> None:
         self.assertEqual(cli.install(self.agents_root, self.skill_root, ("orchestrated-delivery",)), 0)
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         before_manifest = manifest_path.read_bytes()
         before_files = {
             path: path.read_bytes()
@@ -1099,7 +1113,7 @@ class InstallerTests(unittest.TestCase):
         with unittest.mock.patch.object(cli, "GitHubSourceResolver", return_value=first):
             self.assertEqual(cli.install(self.agents_root, self.skill_root, ("handoff",)), 0)
         skill = self.skill_root / "handoff" / "SKILL.md"
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
 
         second = self.remote_resolver("b" * 40)
         with unittest.mock.patch.object(cli, "GitHubSourceResolver", return_value=second):
@@ -1118,7 +1132,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_planned_shape_conflict_happens_before_obsolete_removal_or_manifest_write(self) -> None:
         self.assertEqual(cli.install(self.agents_root, self.skill_root, ("orchestrated-delivery",)), 0)
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         before_manifest = manifest_path.read_bytes()
         before_files = {
             path: path.read_bytes()
@@ -1175,10 +1189,10 @@ class InstallerTests(unittest.TestCase):
         legacy.parent.mkdir(parents=True)
         legacy.write_text("recorded", encoding="utf-8")
         recorded = hashlib.sha256(legacy.read_bytes()).hexdigest()
-        (self.agents_root / cli.MANIFEST_NAME).write_text(
+        (self.agents_root / cli.manifest_name()).write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 1,
                     "files": {"agents/legacy.toml": recorded},
                 }
@@ -1188,7 +1202,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(cli.install(self.agents_root, self.skill_root, ("code-review",)), 0)
 
-        manifest = json.loads((self.agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8"))
+        manifest = json.loads((self.agents_root / cli.manifest_name()).read_text(encoding="utf-8"))
         self.assertEqual(manifest["version"], 4)
         self.assertEqual(manifest["file_provenance"][legacy.as_posix()], {"kind": "legacy"})
         self.assertEqual(set(manifest["file_provenance"]), set(manifest["files"]))
@@ -1207,16 +1221,16 @@ class InstallerTests(unittest.TestCase):
                     legacy.write_text("recorded", encoding="utf-8")
                     files = {legacy.as_posix(): hashlib.sha256(legacy.read_bytes()).hexdigest()}
                     manifest: dict[str, object] = {
-                        "installer": "codex-orchestrator", "version": version, "files": files,
+                        "installer": cli.target().installer_id, "version": version, "files": files,
                     }
                     if version == 3:
                         manifest["components"] = ["orchestrated-delivery"]
                         manifest["file_owners"] = {legacy.as_posix(): ["orchestrated-delivery"]}
-                    (agents_root / cli.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+                    (agents_root / cli.manifest_name()).write_text(json.dumps(manifest), encoding="utf-8")
                     legacy.write_text("locally modified", encoding="utf-8")
 
                     self.assertEqual(cli.install(agents_root, skill_root, ("code-review",)), 0)
-                    migrated = json.loads((agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8"))
+                    migrated = json.loads((agents_root / cli.manifest_name()).read_text(encoding="utf-8"))
                     self.assertEqual(migrated["version"], 4)
                     self.assertEqual(migrated["file_provenance"][legacy.as_posix()], {"kind": "legacy"})
 
@@ -1224,11 +1238,11 @@ class InstallerTests(unittest.TestCase):
         owned = self.agents_root / "agents" / "owned.toml"
         owned.parent.mkdir(parents=True)
         owned.write_text("owned", encoding="utf-8")
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         manifest_path.write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator", "version": 4,
+                    "installer": cli.target().installer_id, "version": 4,
                     "files": {owned.as_posix(): hashlib.sha256(owned.read_bytes()).hexdigest()},
                     "file_owners": {owned.as_posix(): ["handoff"]},
                     "file_provenance": {},
@@ -1250,11 +1264,11 @@ class InstallerTests(unittest.TestCase):
         link = self.skill_root / "linked-skill"
         link.symlink_to(target_directory, target_is_directory=True)
         recorded_path = link / "SKILL.md"
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         manifest_path.write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 3,
                     "components": ["orchestrated-delivery"],
                     "files": {
@@ -1280,11 +1294,11 @@ class InstallerTests(unittest.TestCase):
         link = self.skill_root / "linked-skill"
         link.symlink_to(target_directory, target_is_directory=True)
         recorded_path = link / "SKILL.md"
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         manifest_path.write_text(
             json.dumps(
                 {
-                    "installer": "codex-orchestrator",
+                    "installer": cli.target().installer_id,
                     "version": 4,
                     "files": {
                         recorded_path.as_posix(): hashlib.sha256(target.read_bytes()).hexdigest(),
@@ -1306,7 +1320,7 @@ class InstallerTests(unittest.TestCase):
         owned = self.agents_root / "agents" / "owned.toml"
         owned.parent.mkdir(parents=True)
         owned.write_text("owned", encoding="utf-8")
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         files = {owned.as_posix(): hashlib.sha256(owned.read_bytes()).hexdigest()}
         valid_provenance = {
             "kind": "github",
@@ -1332,7 +1346,7 @@ class InstallerTests(unittest.TestCase):
                 manifest_path.write_text(
                     json.dumps(
                         {
-                            "installer": "codex-orchestrator", "version": 4,
+                            "installer": cli.target().installer_id, "version": 4,
                             "files": files,
                             "file_owners": {owned.as_posix(): ["handoff"]},
                             "file_provenance": {owned.as_posix(): provenance},
@@ -1358,7 +1372,7 @@ class InstallerTests(unittest.TestCase):
                 cli.install(self.agents_root, self.skill_root, ("handoff",), registry), 0
             )
 
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertTrue(manifest["file_provenance"])
         self.assertTrue(
@@ -1377,14 +1391,14 @@ class InstallerTests(unittest.TestCase):
         owned = self.agents_root / "agents" / "owned.toml"
         owned.parent.mkdir(parents=True)
         owned.write_text("owned", encoding="utf-8")
-        manifest_path = self.agents_root / cli.MANIFEST_NAME
+        manifest_path = self.agents_root / cli.manifest_name()
         files = {owned.as_posix(): hashlib.sha256(owned.read_bytes()).hexdigest()}
         for ref in ("main/-bad", "release/foo."):
             with self.subTest(ref=ref):
                 manifest_path.write_text(
                     json.dumps(
                         {
-                            "installer": "codex-orchestrator", "version": 4,
+                            "installer": cli.target().installer_id, "version": 4,
                             "files": files,
                             "file_owners": {owned.as_posix(): ["handoff"]},
                             "file_provenance": {
@@ -1433,11 +1447,11 @@ class InstallerTests(unittest.TestCase):
             return self.materialize_remote(root, paths)
 
         resolver.materialize.side_effect = materialize
-        home = self.skill_root.parent.parent
+        home = Path(self.temporary_directory.name) / "home"
         selector = unittest.mock.Mock(return_value=("handoff",))
         with (
             unittest.mock.patch.dict(
-                "os.environ", {"HOME": str(home), "CODEX_HOME": str(self.agents_root)}, clear=False
+                "os.environ", {"HOME": str(home), self.target.home_env: str(self.agents_root)}, clear=False
             ),
             unittest.mock.patch.object(cli.sys, "stdout", output),
             unittest.mock.patch.object(cli, "select_components", selector),
@@ -1478,11 +1492,11 @@ class InstallerTests(unittest.TestCase):
             raise cli.SourceError("DNS failure")
 
         resolver.materialize.side_effect = fail_preflight
-        home = self.skill_root.parent.parent
+        home = Path(self.temporary_directory.name) / "home"
         selector = unittest.mock.Mock(return_value=("handoff",))
         with (
             unittest.mock.patch.dict(
-                "os.environ", {"HOME": str(home), "CODEX_HOME": str(self.agents_root)}, clear=False
+                "os.environ", {"HOME": str(home), self.target.home_env: str(self.agents_root)}, clear=False
             ),
             unittest.mock.patch.object(cli.sys, "stdout", output),
             unittest.mock.patch.object(cli.sys, "stderr", error),
@@ -1503,11 +1517,11 @@ class InstallerTests(unittest.TestCase):
 
     def test_interactive_bundled_selection_never_starts_remote_status(self) -> None:
         output = _TTYOutput()
-        home = self.skill_root.parent.parent
+        home = Path(self.temporary_directory.name) / "home"
         selector = unittest.mock.Mock(return_value=("code-review",))
         with (
             unittest.mock.patch.dict(
-                "os.environ", {"HOME": str(home), "CODEX_HOME": str(self.agents_root)}, clear=False
+                "os.environ", {"HOME": str(home), self.target.home_env: str(self.agents_root)}, clear=False
             ),
             unittest.mock.patch.object(cli.sys, "stdout", output),
             unittest.mock.patch.object(cli, "select_components", selector),
@@ -1523,11 +1537,11 @@ class InstallerTests(unittest.TestCase):
 
     def test_noninteractive_component_and_all_installs_never_show_remote_status(self) -> None:
         output = _TTYOutput()
-        home = self.skill_root.parent.parent
+        home = Path(self.temporary_directory.name) / "home"
         resolver = self.remote_resolver()
         with (
             unittest.mock.patch.dict(
-                "os.environ", {"HOME": str(home), "CODEX_HOME": str(self.agents_root)}, clear=False
+                "os.environ", {"HOME": str(home), self.target.home_env: str(self.agents_root)}, clear=False
             ),
             unittest.mock.patch.object(cli.sys, "stdout", output),
             unittest.mock.patch.object(cli, "GitHubSourceResolver", return_value=resolver),
@@ -1540,6 +1554,15 @@ class InstallerTests(unittest.TestCase):
 
         spinner_thread.assert_not_called()
         self.assertNotIn("Fetching selected third-party sources", output.getvalue())
+
+
+
+class CodexInstallerTests(InstallerTests, unittest.TestCase):
+    target_name = "codex"
+
+
+class ClaudeInstallerTests(InstallerTests, unittest.TestCase):
+    target_name = "claude"
 
 
 if __name__ == "__main__":

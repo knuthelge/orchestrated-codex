@@ -2,10 +2,13 @@
 requires = ["uv_build>=0.12.9,<0.13"]
 build-backend = "uv_build"
 
+# The one codebase behind both consumer packages. It is never published itself:
+# scripts/export.py exports orchestrated-codex and orchestrated-claude from it, taking
+# their version, dependencies, and classifiers from this file.
 [project]
-name = "orchestrated-codex"
+name = "orchestrated"
 version = "0.1.13"
-description = "Install Codex delivery and code-review skills with focused custom agents."
+description = "Orchestrated delivery skills and subagents for Codex and Claude Code."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,8 +16,8 @@ dependencies = [
     "PyYAML>=6.0.3,<7",
     "questionary>=2.1.1,<3",
 ]
-keywords = ["codex", "orchestration", "developer-tools"]
 classifiers = [
+    "Private :: Do Not Upload",
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Programming Language :: Python :: 3",
@@ -25,21 +28,11 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 
-[project.scripts]
-orchestrated-codex = "codex_orchestrator.cli:main"
-
 [tool.uv.build-backend]
-module-name = "codex_orchestrator"
+module-name = "orchestrated"
 module-root = "src"
 
 [dependency-groups]
 dev = [
     "jinja2>=3.1.6,<4",
-    "orchestrated-claude",
 ]
-
-[tool.uv.workspace]
-members = ["packages/orchestrated-claude"]
-
-[tool.uv.sources]
-orchestrated-claude = { workspace = true }

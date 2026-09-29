@@ -11,8 +11,6 @@ from typing import Any
 import yaml
 from yaml.events import AliasEvent
 
-from ._active import TARGET
-
 SCHEMA_VERSION = 2
 INSTALL_ROOTS = frozenset({"config_home", "skills"})
 
@@ -231,7 +229,6 @@ def _load_resource(
             raise RegistryError(f"{context}.source.kind must be bundled or github")
     destination = _relative_path(data["destination"], f"{context}.destination")
     install_root = _text(data["install_root"], f"{context}.install_root")
-    install_root = TARGET.legacy_install_roots.get(install_root, install_root)
     if install_root not in INSTALL_ROOTS:
         raise RegistryError(
             f"{context}.install_root must be one of: {', '.join(sorted(INSTALL_ROOTS))}"

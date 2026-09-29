@@ -10,9 +10,10 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from codex_orchestrator import cli, sources
-from codex_orchestrator.registry import GitHubRepository, GitHubSource
-from codex_orchestrator.sources import GitHubSourceResolver, HTTPSFetcher, SourceError, SourceLimits
+import support
+from orchestrated import cli, sources
+from orchestrated.registry import GitHubRepository, GitHubSource
+from orchestrated.sources import GitHubSourceResolver, HTTPSFetcher, SourceError, SourceLimits
 
 
 COMMIT = "a" * 40
@@ -66,8 +67,9 @@ class _Connection:
         self.closed = True
 
 
-class SourcesTests(unittest.TestCase):
+class SourcesTests(support.TargetMixin):
     def setUp(self) -> None:
+        super().setUp()
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.base = Path(self.temporary_directory.name)
         self.destination = self.base / "materialized"
@@ -124,7 +126,7 @@ class SourcesTests(unittest.TestCase):
         self.assertTrue(all(call[2:] == ("raw.githubusercontent.com", "application/octet-stream") for call in calls[1:]))
         self.assertFalse(any("/git/trees/" in call[0] or "/git/blobs/" in call[0] for call in calls))
 
-    def test_shipped_all_remote_selection_is_one_ref_plus_twelve_files(self) -> None:
+    def test_shipped_all_remote_selection_is_one_ref_plus_each_listed_file(self) -> None:
         registry = cli.default_registry()
         remote_paths = {
             resource.source.path
@@ -132,16 +134,18 @@ class SourcesTests(unittest.TestCase):
             for resource in component.resources
             if isinstance(resource.source, GitHubSource)
         }
-        self.assertEqual(len(remote_paths), 12)
+        # Four of Codex's twelve files are agents/openai.yaml skill metadata.
+        listed = 12 if self.skill_metadata else 8
+        self.assertEqual(len(remote_paths), listed)
         calls: list[tuple[str, int, str, str]] = []
         files = {path: b"# skill\n" for path in remote_paths}
         repo = registry.repositories["mattpocock-skills"]
         ref = json.dumps({"ref": "refs/heads/main", "object": {"type": "commit", "sha": COMMIT}}).encode()
         result = self.fetcher(files, ref=ref, calls=calls).materialize(repo, remote_paths, self.destination)
         self.assertEqual(result.sha, COMMIT)
-        self.assertEqual(len(calls), 13)
+        self.assertEqual(len(calls), listed + 1)
         self.assertEqual(sum(call[2] == "api.github.com" for call in calls), 1)
-        self.assertEqual(sum(call[2] == "raw.githubusercontent.com" for call in calls), 12)
+        self.assertEqual(sum(call[2] == "raw.githubusercontent.com" for call in calls), listed)
 
     def test_all_downloads_finish_before_materialization(self) -> None:
         calls: list[tuple[str, int, str, str]] = []
@@ -192,11 +196,11 @@ class SourcesTests(unittest.TestCase):
         _Connection.calls = []
         _Connection.responses = [_Response(200, b"ok", {"Content-Length": "2"})]
         with unittest.mock.patch.object(sources.http.client, "HTTPSConnection", _Connection):
-            self.assertEqual(HTTPSFetcher(clock=lambda: 0)(
+            self.assertEqual(HTTPSFetcher(clock=lambda: 0, user_agent="orchestrated-test")(
                 "https://raw.githubusercontent.com/example/skills/sha/SKILL.md", 2,
                 "raw.githubusercontent.com", 5, "application/octet-stream",
             ), b"ok")
-        self.assertEqual(_Connection.calls[0].request_args[2]["User-Agent"], "orchestrated-codex")
+        self.assertEqual(_Connection.calls[0].request_args[2]["User-Agent"], "orchestrated-test")
         self.assertNotIn("X-GitHub-Api-Version", _Connection.calls[0].request_args[2])
 
         _Connection.responses = [_Response(200, b"{}")]
@@ -219,3 +223,11 @@ class SourcesTests(unittest.TestCase):
                 HTTPSFetcher(clock=lambda: 0)("https://api.github.com/path", 2, "api.github.com", 5)
         with self.assertRaisesRegex(SourceError, "unexpected GitHub request URL"):
             HTTPSFetcher(clock=lambda: 0)("https://other.example/path", 2, "other.example", 5)
+
+
+class CodexSourcesTests(SourcesTests, unittest.TestCase):
+    target_name = "codex"
+
+
+class ClaudeSourcesTests(SourcesTests, unittest.TestCase):
+    target_name = "claude"

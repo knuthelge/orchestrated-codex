@@ -1,18 +1,21 @@
-"""Payload correctness tests: agent TOML schema/model set, SKILL.md content, discoverability.
+"""Payload tests for the resources rendered for each target.
 
-These assert the shipped resources are well-formed (valid TOML, allowed models, and
-``sandbox_mode`` used only to pin read-only agents), that SKILL.md carries the orchestration
-doctrine, and that the resolved skill install path lies under a documented Codex skills root.
-Standard library only.
+Workflow content (routes, gates, contracts, and the code-review procedure) is shared, so
+those tests run for every target. Each target also has tests for its own format: Codex
+agent TOML and openai.yaml skill metadata, and Claude Code agent and skill frontmatter.
 """
 
 from __future__ import annotations
 
+import re
 import tomllib
 import unittest
 from pathlib import Path
 
-from codex_orchestrator import cli
+import yaml
+
+import support
+from orchestrated import cli
 
 
 EXPECTED_MODELS = {
@@ -26,26 +29,6 @@ EXPECTED_MODELS = {
 }
 READ_ONLY_AGENTS = {"discovery", "final_reviewer", "rubber_duck"}
 WRITE_AGENTS = {"spec_designer", "ui_designer", "developer", "tester"}
-AGENTS_DIR = cli.RESOURCE_ROOT / "agents"
-SKILL_MD = cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "SKILL.md"
-SKILL_OPENAI_YAML = (
-    cli.RESOURCE_ROOT / "skills" / "orchestrated-delivery" / "agents" / "openai.yaml"
-)
-CODE_REVIEW_SKILL_MD = cli.RESOURCE_ROOT / "skills" / "orchestrated-code-review" / "SKILL.md"
-CODE_REVIEW_OPENAI_YAML = (
-    cli.RESOURCE_ROOT / "skills" / "orchestrated-code-review" / "agents" / "openai.yaml"
-)
-CODE_REVIEW_CHECKLIST = (
-    cli.RESOURCE_ROOT
-    / "skills"
-    / "orchestrated-code-review"
-    / "references"
-    / "review-checklist-template.md"
-)
-
-
-def agent_toml_paths() -> list[Path]:
-    return sorted(AGENTS_DIR.glob("*.toml"))
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -62,9 +45,14 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return frontmatter, body
 
 
-class AgentPayloadTests(unittest.TestCase):
+class CodexAgentPayloadTests(support.TargetMixin, unittest.TestCase):
+    target_name = "codex"
+
+    def agent_toml_paths(self) -> list[Path]:
+        return sorted((self.resources / "agents").glob("*.toml"))
+
     def test_expected_agent_files_present(self) -> None:
-        names = {path.name for path in agent_toml_paths()}
+        names = {path.name for path in self.agent_toml_paths()}
         self.assertEqual(
             names,
             {
@@ -81,13 +69,13 @@ class AgentPayloadTests(unittest.TestCase):
 
     def test_agent_model_routing(self) -> None:  # SC-3
         actual = {}
-        for path in agent_toml_paths():
+        for path in self.agent_toml_paths():
             data = tomllib.loads(path.read_text(encoding="utf-8"))
             actual[data["name"]] = data.get("model")
         self.assertEqual(actual, EXPECTED_MODELS)
 
     def test_schema_and_sandbox_mode(self) -> None:  # SC-4
-        for path in agent_toml_paths():
+        for path in self.agent_toml_paths():
             data = tomllib.loads(path.read_text(encoding="utf-8"))
             for key in ("name", "description", "developer_instructions"):
                 self.assertIn(key, data, f"{path.name} missing {key}")
@@ -106,7 +94,7 @@ class AgentPayloadTests(unittest.TestCase):
 
     def test_read_only_agents_pin_sandbox_mode(self) -> None:  # SC-4
         seen = set()
-        for path in agent_toml_paths():
+        for path in self.agent_toml_paths():
             data = tomllib.loads(path.read_text(encoding="utf-8"))
             if data["name"] in READ_ONLY_AGENTS:
                 seen.add(data["name"])
@@ -118,7 +106,7 @@ class AgentPayloadTests(unittest.TestCase):
         self.assertEqual(seen, READ_ONLY_AGENTS)
 
     def test_developer_keeps_report_contract_and_prohibitions(self) -> None:
-        data = tomllib.loads((AGENTS_DIR / "developer.toml").read_text(encoding="utf-8"))
+        data = tomllib.loads((self.resources / "agents" / "developer.toml").read_text(encoding="utf-8"))
         instructions = data["developer_instructions"]
         self.assertEqual(data["name"], "developer")
         self.assertEqual(data["model_reasoning_effort"], "high")
@@ -135,25 +123,23 @@ class AgentPayloadTests(unittest.TestCase):
             self.assertNotIn(copilot_only, instructions)
 
     def test_rubber_duck_and_tester_names(self) -> None:
-        rubber = tomllib.loads((AGENTS_DIR / "rubber-duck.toml").read_text(encoding="utf-8"))
-        tester = tomllib.loads((AGENTS_DIR / "tester.toml").read_text(encoding="utf-8"))
+        rubber = tomllib.loads((self.resources / "agents" / "rubber-duck.toml").read_text(encoding="utf-8"))
+        tester = tomllib.loads((self.resources / "agents" / "tester.toml").read_text(encoding="utf-8"))
         self.assertEqual(rubber["name"], "rubber_duck")
         self.assertEqual(tester["name"], "tester")
 
 
-class SkillPayloadTests(unittest.TestCase):
+class DeliverySkillTests(support.TargetMixin):
     def setUp(self) -> None:
+        super().setUp()
+        self.skill_dir = self.resources / "skills" / "orchestrated-delivery"
         self.frontmatter, self.body = parse_frontmatter(
-            SKILL_MD.read_text(encoding="utf-8")
+            (self.skill_dir / "SKILL.md").read_text(encoding="utf-8")
         )
 
     def test_frontmatter(self) -> None:  # SC-5
         self.assertEqual(self.frontmatter.get("name"), "orchestrated-delivery")
         self.assertTrue(self.frontmatter.get("description"))
-
-    def test_explicit_invocation_only(self) -> None:
-        metadata = SKILL_OPENAI_YAML.read_text(encoding="utf-8")
-        self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
 
     def test_body_contains_routes(self) -> None:  # SC-5 / SC-7
         for route in ("trivial", "bug-fix", "review", "test-only", "docs", "standard"):
@@ -167,15 +153,6 @@ class SkillPayloadTests(unittest.TestCase):
         for phase in ("Phase 0", "Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"):
             self.assertIn(phase, self.body)
 
-    def test_context_and_waiting_discipline(self) -> None:
-        normalized = " ".join(self.body.split())
-        self.assertIn('fork_turns: "none"', normalized)
-        self.assertIn("self-contained scoped digest", normalized)
-        self.assertIn("not filesystem access or permissions", normalized)
-        self.assertIn("do not wait or poll subagents", normalized)
-        self.assertIn("one long `wait_agent` call (5–10 minutes)", normalized)
-        self.assertIn("A timeout alone does not mean a subagent is stalled.", normalized)
-
     def test_body_contains_never_stop_clause(self) -> None:  # SC-5 / SC-7
         self.assertIn("a structured user question", self.body)
         self.assertNotIn("askQuestions", self.body)
@@ -186,6 +163,28 @@ class SkillPayloadTests(unittest.TestCase):
         self.assertIn("orchestrate only", self.body.lower())
         self.assertIn("Implementation is delegated to `developer`", self.body)
         self.assertNotRegex(self.body, r"\bworker\b")
+
+    def test_body_contains_prompt_contract(self) -> None:  # SC-7
+        for field in ("Acceptance Criteria", "UI Affected", "Docs Affected", "Expected Output"):
+            self.assertIn(field, self.body)
+
+
+
+class CodexDeliverySkillTests(DeliverySkillTests, unittest.TestCase):
+    target_name = "codex"
+
+    def test_explicit_invocation_only(self) -> None:
+        metadata = (self.skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
+
+    def test_context_and_waiting_discipline(self) -> None:
+        normalized = " ".join(self.body.split())
+        self.assertIn('fork_turns: "none"', normalized)
+        self.assertIn("self-contained scoped digest", normalized)
+        self.assertIn("not filesystem access or permissions", normalized)
+        self.assertIn("do not wait or poll subagents", normalized)
+        self.assertIn("one long `wait_agent` call (5–10 minutes)", normalized)
+        self.assertIn("A timeout alone does not mean a subagent is stalled.", normalized)
 
     def test_body_contains_model_routing(self) -> None:  # SC-7
         for model in ("gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"):
@@ -203,27 +202,54 @@ class SkillPayloadTests(unittest.TestCase):
             "model-routing guidance must not name the unsupported unsuffixed gpt-5.6 model",
         )
 
-    def test_body_contains_prompt_contract(self) -> None:  # SC-7
-        for field in ("Acceptance Criteria", "UI Affected", "Docs Affected", "Expected Output"):
-            self.assertIn(field, self.body)
 
+class ClaudeDeliverySkillTests(DeliverySkillTests, unittest.TestCase):
+    target_name = "claude"
 
-class CodeReviewSkillPayloadTests(unittest.TestCase):
+    def test_explicit_invocation_only(self) -> None:
+        self.assertEqual(self.frontmatter.get("disable-model-invocation"), "true")
+        self.assertFalse((self.skill_dir / "agents").exists())
+
+    def test_context_and_waiting_discipline(self) -> None:
+        normalized = " ".join(self.body.split())
+        self.assertIn("Subagents start with fresh context", normalized)
+        self.assertIn("not filesystem access or permissions", normalized)
+        self.assertIn("never poll, sleep, or check status in a loop", normalized)
+        self.assertIn("the AskUserQuestion tool", normalized)
+
+    def test_body_contains_model_routing(self) -> None:
+        normalized = " ".join(self.body.split())
+        self.assertIn(
+            "`opus` for demanding planning, design, and holistic review "
+            "(`final-reviewer`, `rubber-duck`, `spec-designer`, and `ui-designer`)",
+            normalized,
+        )
+        self.assertIn("`sonnet` for implementation and test work (`developer` and `tester`)", normalized)
+        self.assertIn("`haiku` for narrow, fast reconnaissance (`discovery`)", normalized)
+
+class CodeReviewSkillTests(support.TargetMixin):
     def setUp(self) -> None:
+        super().setUp()
+        self.skill_dir = self.resources / "skills" / "orchestrated-code-review"
+        self.checklist_path = self.skill_dir / "references" / "review-checklist-template.md"
         self.frontmatter, self.body = parse_frontmatter(
-            CODE_REVIEW_SKILL_MD.read_text(encoding="utf-8")
+            (self.skill_dir / "SKILL.md").read_text(encoding="utf-8")
         )
         self.normalized_body = " ".join(self.body.split())
 
     def test_frontmatter_and_explicit_invocation_policy(self) -> None:
+        invocation = f"{self.vocabulary['invoke']}orchestrated-code-review"
         self.assertEqual(self.frontmatter.get("name"), "orchestrated-code-review")
         self.assertIn(
-            "explicitly invokes $orchestrated-code-review", self.frontmatter.get("description", "")
+            f"explicitly invokes {invocation}", self.frontmatter.get("description", "")
         )
-        metadata = CODE_REVIEW_OPENAI_YAML.read_text(encoding="utf-8")
-        self.assertIn("default_prompt:", metadata)
-        self.assertIn("$orchestrated-code-review", metadata)
-        self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
+        if self.skill_metadata:
+            metadata = (self.skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8")
+            self.assertIn("default_prompt:", metadata)
+            self.assertIn(invocation, metadata)
+            self.assertIn("policy:\n  allow_implicit_invocation: false\n", metadata)
+        else:
+            self.assertEqual(self.frontmatter.get("disable-model-invocation"), "true")
 
     def test_review_scope_and_authorization_boundaries(self) -> None:
         self.assertIn("code-review.md", self.body)
@@ -253,7 +279,7 @@ class CodeReviewSkillPayloadTests(unittest.TestCase):
         self.assertIn("do not report the mere presence of a suppression", self.normalized_body)
 
     def test_mandatory_file_backed_checklist_preserves_original_review_stages(self) -> None:
-        checklist = CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8")
+        checklist = self.checklist_path.read_text(encoding="utf-8")
         self.assertIn("mandatory for every review", self.normalized_body)
         self.assertIn(".agent-work/code-review-checklist.md", self.normalized_body)
         self.assertIn("in-progress", self.normalized_body)
@@ -290,11 +316,11 @@ class CodeReviewSkillPayloadTests(unittest.TestCase):
         self.assertIn(
             "individual verdict and brief evidence for every claim", self.normalized_body
         )
-        checklist = " ".join(CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8").split())
+        checklist = " ".join(self.checklist_path.read_text(encoding="utf-8").split())
         self.assertIn("each finding must have a separate assignment, verdict, and evidence", checklist)
 
     def test_provisional_draft_precedes_validation_and_finalization(self) -> None:
-        checklist = " ".join(CODE_REVIEW_CHECKLIST.read_text(encoding="utf-8").split())
+        checklist = " ".join(self.checklist_path.read_text(encoding="utf-8").split())
         self.assertIn("provisional `code-review.md` draft", self.normalized_body)
         self.assertIn("label the draft and every candidate as unverified", self.normalized_body)
         self.assertIn("before retaining candidates in the finalized report", self.normalized_body)
@@ -315,7 +341,17 @@ class CodeReviewSkillPayloadTests(unittest.TestCase):
             self.assertNotIn(unavailable_tool, self.body)
 
 
-class DiscoverabilityTests(unittest.TestCase):
+class CodexCodeReviewSkillTests(CodeReviewSkillTests, unittest.TestCase):
+    target_name = "codex"
+
+
+class ClaudeCodeReviewSkillTests(CodeReviewSkillTests, unittest.TestCase):
+    target_name = "claude"
+
+
+class CodexDiscoverabilityTests(support.TargetMixin, unittest.TestCase):
+    target_name = "codex"
+
     def test_skill_root_under_documented_codex_skills_root(self) -> None:  # SC-8
         skill_root = cli.resolve_skill_root()
         documented = (
@@ -335,6 +371,59 @@ class DiscoverabilityTests(unittest.TestCase):
 
     def test_agents_root_independent_of_skill_root(self) -> None:  # SC-2
         self.assertNotEqual(cli.resolve_agents_root(), cli.resolve_skill_root())
+
+
+# A project policy: agents pin a model alias; Claude Code also accepts fable and full IDs.
+CLAUDE_EXPECTED_MODELS = {
+    "developer": "sonnet",
+    "discovery": "haiku",
+    "final-reviewer": "opus",
+    "rubber-duck": "opus",
+    "spec-designer": "opus",
+    "tester": "sonnet",
+    "ui-designer": "opus",
+}
+CLAUDE_EXPECTED_EFFORT = {name: "high" for name in CLAUDE_EXPECTED_MODELS} | {"discovery": "xhigh"}
+CLAUDE_READ_ONLY_AGENTS = {"discovery", "final-reviewer", "rubber-duck"}
+
+
+def split_yaml_frontmatter(text: str) -> tuple[dict[str, object], str]:
+    match = re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)
+    if match is None:
+        raise AssertionError("missing YAML frontmatter")
+    return yaml.safe_load(match.group(1)), text[match.end():]
+
+
+class ClaudeAgentPayloadTests(support.TargetMixin, unittest.TestCase):
+    target_name = "claude"
+
+    def agents(self) -> dict[str, tuple[dict[str, object], str]]:
+        return {
+            path.stem: split_yaml_frontmatter(path.read_text(encoding="utf-8"))
+            for path in sorted((self.resources / "agents").glob("*.md"))
+        }
+
+    def test_expected_agents_present(self) -> None:
+        self.assertEqual(set(self.agents()), set(CLAUDE_EXPECTED_MODELS))
+
+    def test_frontmatter_schema(self) -> None:
+        for stem, (meta, body) in self.agents().items():
+            with self.subTest(agent=stem):
+                self.assertEqual(
+                    set(meta), {"name", "description", "model", "effort", "disallowedTools"}
+                )
+                self.assertEqual(meta["name"], stem)
+                self.assertRegex(stem, r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+                self.assertTrue(str(meta["description"]).strip())
+                self.assertEqual(meta["model"], CLAUDE_EXPECTED_MODELS[stem])
+                self.assertEqual(meta["effort"], CLAUDE_EXPECTED_EFFORT[stem])
+                self.assertTrue(body.strip())
+
+    def test_no_agent_spawns_subagents_and_read_only_agents_cannot_edit(self) -> None:
+        for stem, (meta, _) in self.agents().items():
+            with self.subTest(agent=stem):
+                expected = "Agent, Edit, Write, NotebookEdit" if stem in CLAUDE_READ_ONLY_AGENTS else "Agent"
+                self.assertEqual(meta["disallowedTools"], expected)
 
 
 if __name__ == "__main__":
