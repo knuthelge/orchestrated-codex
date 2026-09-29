@@ -290,10 +290,13 @@ def load_targets(content_root: Path) -> dict[str, dict[str, object]]:
     return targets
 
 
-def render_target(repo_root: Path, name: str) -> dict[str, str]:
+def render_target(
+    repo_root: Path, name: str, targets: Mapping[str, Mapping[str, object]] | None = None
+) -> dict[str, str]:
     """Render one target's bundled resources, keyed by path under the resource root."""
     content_root = repo_root / CONTENT_DIR
-    targets = load_targets(content_root)
+    if targets is None:
+        targets = load_targets(content_root)
     if name not in targets:
         raise RenderError(f"unknown target {name!r}; expected one of {sorted(targets)}")
     return Renderer(content_root, name, targets[name]).render_all()
@@ -315,7 +318,8 @@ def package_files(repo_root: Path, name: str) -> tuple[str, dict[str, str]]:
     if name not in TARGETS:
         raise RenderError(f"unknown target {name!r}; expected one of {sorted(TARGETS)}")
     target = TARGETS[name]
-    package = load_targets(repo_root / CONTENT_DIR)[name]["package"]
+    vocabularies = load_targets(repo_root / CONTENT_DIR)
+    package = vocabularies[name]["package"]
     module = str(package["module"])
     with (repo_root / "pyproject.toml").open("rb") as file:
         root_project = tomllib.load(file)
@@ -381,7 +385,7 @@ if __name__ == "__main__":
         files[f"{source}/{engine_file}"] = (
             repo_root / ENGINE_SOURCE / engine_file
         ).read_text(encoding="utf-8")
-    for relative, text in render_target(repo_root, name).items():
+    for relative, text in render_target(repo_root, name, vocabularies).items():
         files[f"{source}/resources/{relative}"] = text
     return target.distribution, files
 

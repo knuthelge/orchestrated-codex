@@ -95,6 +95,24 @@ class TargetBehaviorTests(support.TargetMixin):
         skill_root = self.expected_skill_root(self.home, override)
         self.assertTrue((skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
 
+    def test_symlinked_skills_root_nested_in_the_config_home(self) -> None:
+        # Dotfile managers often make <config>/skills a symlink; the skills root is still a
+        # root even though it sits inside the config home.
+        actual = Path(self.temporary_directory.name) / "actual-skills"
+        actual.mkdir()
+        self.config_home.mkdir()
+        skill_root = self.config_home / "skills"
+        skill_root.symlink_to(actual, target_is_directory=True)
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.install(self.config_home, skill_root), 0)
+            self.assertEqual(cli.install(self.config_home, skill_root), 0)
+            self.assertTrue((actual / "orchestrated-delivery" / "SKILL.md").is_file())
+            self.assertEqual(cli.uninstall(self.config_home, skill_root), 0)
+
+        self.assertTrue(skill_root.is_symlink())
+        self.assertFalse((actual / "orchestrated-delivery").exists())
+
     def test_manifest_from_another_installer_is_refused(self) -> None:
         self.config_home.mkdir()
         (self.config_home / self.target.manifest_name).write_text(
