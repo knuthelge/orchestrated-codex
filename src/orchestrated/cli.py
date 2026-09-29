@@ -469,8 +469,10 @@ def _recorded_ancestor_conflicts(paths: Iterable[Path], roots: Sequence[Path]) -
     """Reject tracked paths reached through a non-directory ancestor."""
     conflicts: set[Path] = set()
     for path in paths:
+        # Take the deepest root: a skills root may sit inside the config home, and the
+        # skills root itself may be a symlinked directory.
         lexical_root = next(
-            (candidate for candidate in reversed(path.parents)
+            (candidate for candidate in path.parents
              if any(candidate.resolve() == root.resolve() for root in roots)),
             None,
         )
@@ -499,7 +501,12 @@ def _path_conflicts(planned: set[Path], recorded: set[Path], roots: Sequence[Pat
         if any(path != other and (path in other.parents or other in path.parents)
                for other in all_paths):
             conflicts.add(path)
-        root = next((root for root in roots if path.is_relative_to(root)), None)
+        # The deepest matching root, as roots may nest (see _recorded_ancestor_conflicts).
+        root = max(
+            (root for root in roots if path.is_relative_to(root)),
+            key=lambda root: len(root.parts),
+            default=None,
+        )
         if root is None:
             conflicts.add(path)
             continue
