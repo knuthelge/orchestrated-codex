@@ -31,3 +31,8 @@ orchestrated-codex = "codex_orchestrator.cli:main"
 [tool.uv.build-backend]
 module-name = "codex_orchestrator"
 module-root = "src"
+
+[dependency-groups]
+dev = [
+    "jinja2>=3.1.6,<4",
+]

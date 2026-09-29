@@ -1,0 +1,134 @@
+{# Component registry; rendered per target to <output>/install-components.yaml. #}
+{% set delivery_agents = ["discovery", "spec-designer", "rubber-duck", "ui-designer", "tester", "final-reviewer"] %}
+schema_version: 2
+repositories:
+  mattpocock-skills:
+    owner: mattpocock
+    repository: skills
+    ref: main
+    display_name: Matt Pocock skills
+    licence: MIT
+components:
+  - id: orchestrated-delivery
+    title: Orchestrated delivery
+    active: true
+    description: Guided multi-agent software delivery workflow.
+    includes: Skill + {{ delivery_agents | length }} custom agents
+    resources:
+      - source:
+          kind: bundled
+          path: skills/{{ skills.orchestrated_delivery }}
+        install_root: skills
+        destination: {{ skills.orchestrated_delivery }}
+{% for stem in delivery_agents %}
+      - source:
+          kind: bundled
+          path: agents/{{ stem }}{{ agent_ext }}
+        install_root: codex_home
+        destination: agents/{{ stem }}{{ agent_ext }}
+{% endfor %}
+
+  - id: code-review
+    title: Code review
+    active: true
+    description: Explicit, independently verified code-review workflow.
+    includes: Skill + supporting references
+    resources:
+      - source:
+          kind: bundled
+          path: skills/{{ skills.code_review }}
+        install_root: skills
+        destination: {{ skills.code_review }}
+
+  - id: grill-me
+    title: Grill me
+    active: true
+    description: A skill that questions and sharpens an idea through dialogue.
+    includes: 2 skills + agent metadata
+    resources:
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grill-me/SKILL.md
+        install_root: skills
+        destination: grill-me/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grill-me/agents/openai.yaml
+        install_root: skills
+        destination: grill-me/agents/openai.yaml
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grilling/SKILL.md
+        install_root: skills
+        destination: grilling/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/grilling/agents/openai.yaml
+        install_root: skills
+        destination: grilling/agents/openai.yaml
+
+  - id: handoff
+    title: Handoff
+    active: true
+    description: Prepare a concise handoff for another working session.
+    includes: Skill + agent metadata
+    resources:
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/handoff/SKILL.md
+        install_root: skills
+        destination: handoff/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/handoff/agents/openai.yaml
+        install_root: skills
+        destination: handoff/agents/openai.yaml
+
+  - id: teach
+    title: Teach
+    active: true
+    description: Explain and teach a topic through structured dialogue.
+    includes: Skill + 4 format guides + agent metadata
+    resources:
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/SKILL.md
+        install_root: skills
+        destination: teach/SKILL.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/GLOSSARY-FORMAT.md
+        install_root: skills
+        destination: teach/GLOSSARY-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/LEARNING-RECORD-FORMAT.md
+        install_root: skills
+        destination: teach/LEARNING-RECORD-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/MISSION-FORMAT.md
+        install_root: skills
+        destination: teach/MISSION-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/RESOURCES-FORMAT.md
+        install_root: skills
+        destination: teach/RESOURCES-FORMAT.md
+      - source:
+          kind: github
+          repository: mattpocock-skills
+          path: skills/productivity/teach/agents/openai.yaml
+        install_root: skills
+        destination: teach/agents/openai.yaml

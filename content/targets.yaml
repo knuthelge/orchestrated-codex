@@ -1,0 +1,13 @@
+# Per-harness vocabulary for scripts/render_resources.py. Templates under content/ read
+# these values; an unknown key fails the render.
+codex:
+  output: src/codex_orchestrator/resources
+  product: Codex
+  invoke: "$"
+  agent_format: codex
+  agent_name_style: snake
+  agent_ext: .toml
+  tiers:
+    deep: gpt-6-sol
+    standard: gpt-5.6-terra
+    fast: gpt-6-luna

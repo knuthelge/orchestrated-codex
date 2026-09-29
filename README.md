@@ -153,7 +153,21 @@ uv run main.py --install --all --codex-home /path/to/test-home
 uv run python -m unittest discover -s tests
 ```
 
-Installable choices are defined in
+Skills, agents, and the component registry are authored once under `content/` and
+rendered into `src/codex_orchestrator/resources/`, which is generated: edit `content/`,
+never the generated files. `content/targets.yaml` holds each harness's vocabulary (model
+tiers, agent naming, invocation prefix); sources reference it through Jinja placeholders
+such as `{{ agents.tester }}` and `{{ invoke }}{{ skills.code_review }}`. Agent sources are
+Markdown with `description`, `tier`, `effort`, and `read_only` frontmatter and the
+instructions as the body. Re-render after editing, and commit the result; the test suite
+fails when committed output is stale:
+
+```sh
+uv run scripts/render_resources.py          # regenerate
+uv run scripts/render_resources.py --check  # verify only
+```
+
+Installable choices are defined in `content/install-components.yaml.j2`, rendered to
 `src/codex_orchestrator/resources/install-components.yaml`. Its schema-v2 component entries
 supply the checklist text, `active` state, optional dependencies, destination roots, relative
 destinations, and resource sources. A source is either `kind: bundled` with a path
