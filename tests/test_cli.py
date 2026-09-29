@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from codex_orchestrator import cli
+from codex_orchestrator.registry import load_registry
 from codex_orchestrator.sources import GitHubSourceResolver
 
 
@@ -142,7 +144,7 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue((delivery_skill_dir / "SKILL.md").is_file())
         self.assertTrue((delivery_skill_dir / "agents" / "openai.yaml").is_file())
         self.assertTrue((delivery_skill_dir / "references").is_dir())
-        review_skill_dir = self.skill_root / "code-review"
+        review_skill_dir = self.skill_root / "orchestrated-code-review"
         self.assertTrue((review_skill_dir / "SKILL.md").is_file())
         self.assertTrue((review_skill_dir / "agents" / "openai.yaml").is_file())
         self.assertTrue(
@@ -155,6 +157,7 @@ class InstallerTests(unittest.TestCase):
             "spec-designer.toml",
             "rubber-duck.toml",
             "ui-designer.toml",
+            "developer.toml",
             "tester.toml",
             "final-reviewer.toml",
         ):
@@ -183,7 +186,7 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(cli.install(agents_root, skill_root), 0)
                 self.assertEqual(cli.install(agents_root, skill_root), 0)
                 self.assertTrue((agents_root / "agents" / "discovery.toml").is_file())
-                self.assertTrue((skill_root / "code-review" / "SKILL.md").is_file())
+                self.assertTrue((skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
                 self.assertEqual(cli.uninstall(agents_root, skill_root), 0)
                 self.assertTrue((agents_root if linked_root == "codex-home" else skill_root).is_symlink())
 
@@ -251,7 +254,7 @@ class InstallerTests(unittest.TestCase):
         for destination in expected:
             self.assertFalse(destination.exists())
         self.assertFalse((self.skill_root / "orchestrated-delivery").exists())
-        self.assertFalse((self.skill_root / "code-review").exists())
+        self.assertFalse((self.skill_root / "orchestrated-code-review").exists())
 
     def test_install_refuses_foreign_file(self) -> None:
         destination = next(iter(self.files()))
@@ -552,16 +555,61 @@ class InstallerTests(unittest.TestCase):
             ).is_file()
         )
         self.assertTrue(
-            (home / ".agents" / "skills" / "code-review" / "SKILL.md").is_file()
+            (home / ".agents" / "skills" / "orchestrated-code-review" / "SKILL.md").is_file()
         )
         self.assertTrue((codex_home / "agents" / "tester.toml").is_file())
+
+    def legacy_code_review_registry(self):
+        """The packaged registry as released before the skill became orchestrated-code-review."""
+        legacy_root = Path(self.temporary_directory.name) / "legacy-resources"
+        shutil.copytree(cli.RESOURCE_ROOT, legacy_root)
+        (legacy_root / "skills" / "orchestrated-code-review").rename(
+            legacy_root / "skills" / "code-review"
+        )
+        registry_path = legacy_root / "install-components.yaml"
+        registry_path.write_text(
+            registry_path.read_text(encoding="utf-8").replace(
+                "orchestrated-code-review", "code-review"
+            ),
+            encoding="utf-8",
+        )
+        return load_registry(registry_path, legacy_root)
+
+    def test_update_moves_code_review_skill_to_its_new_name(self) -> None:
+        legacy = self.legacy_code_review_registry()
+        self.assertEqual(
+            cli.install(self.agents_root, self.skill_root, ("code-review",), legacy), 0
+        )
+        self.assertTrue((self.skill_root / "code-review" / "SKILL.md").is_file())
+
+        self.assertEqual(cli.install(self.agents_root, self.skill_root, ("code-review",)), 0)
+
+        self.assertFalse((self.skill_root / "code-review").exists())
+        self.assertTrue((self.skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
+        manifest = json.loads(
+            (self.agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["components"], ["code-review"])
+
+    def test_update_preserves_locally_modified_legacy_code_review_skill(self) -> None:
+        legacy = self.legacy_code_review_registry()
+        self.assertEqual(
+            cli.install(self.agents_root, self.skill_root, ("code-review",), legacy), 0
+        )
+        modified = self.skill_root / "code-review" / "SKILL.md"
+        modified.write_text("local notes\n", encoding="utf-8")
+
+        self.assertEqual(cli.install(self.agents_root, self.skill_root, ("code-review",)), 0)
+
+        self.assertEqual(modified.read_text(encoding="utf-8"), "local notes\n")
+        self.assertTrue((self.skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
 
     def test_install_can_select_only_code_review(self) -> None:
         self.assertEqual(
             cli.install(self.agents_root, self.skill_root, ("code-review",)), 0
         )
 
-        self.assertTrue((self.skill_root / "code-review" / "SKILL.md").is_file())
+        self.assertTrue((self.skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
         self.assertFalse((self.skill_root / "orchestrated-delivery").exists())
         self.assertFalse((self.agents_root / "agents").exists())
         manifest = json.loads(
@@ -593,7 +641,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertFalse((self.skill_root / "orchestrated-delivery").exists())
         self.assertFalse((self.agents_root / "agents").exists())
-        self.assertTrue((self.skill_root / "code-review" / "SKILL.md").is_file())
+        self.assertTrue((self.skill_root / "orchestrated-code-review" / "SKILL.md").is_file())
 
     def test_new_selection_preserves_modified_deselected_component(self) -> None:
         self.assertEqual(cli.install(self.agents_root, self.skill_root), 0)
@@ -623,7 +671,7 @@ class InstallerTests(unittest.TestCase):
         ):
             self.assertEqual(cli.main(["--install", "--components", "code-review"]), 0)
 
-        self.assertTrue((home / ".agents/skills/code-review/SKILL.md").is_file())
+        self.assertTrue((home / ".agents/skills/orchestrated-code-review/SKILL.md").is_file())
         self.assertFalse((home / ".agents/skills/orchestrated-delivery").exists())
         self.assertFalse((codex_home / "agents").exists())
 
@@ -684,7 +732,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(
             rendered_titles,
             [
-                "Orchestrated delivery - Skill + 6 custom agents.",
+                "Orchestrated delivery - Skill + 7 custom agents.",
                 "Code review - Skill + supporting references.",
                 "Grill me - 2 skills + agent metadata. (3rd party)",
                 "Handoff - Skill + agent metadata. (3rd party)",
@@ -1044,7 +1092,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(
             {path: path.read_bytes() for path in before_files}, before_files
         )
-        self.assertFalse((self.skill_root / "code-review").exists())
+        self.assertFalse((self.skill_root / "orchestrated-code-review").exists())
 
     def test_remote_update_records_new_sha_and_refuses_to_replace_modified_file(self) -> None:
         first = self.remote_resolver("a" * 40)

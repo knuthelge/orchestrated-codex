@@ -1,3 +1,4 @@
+# Generated from content/install-components.yaml.j2 by scripts/render_resources.py; do not edit.
 schema_version: 2
 repositories:
   mattpocock-skills:
@@ -11,7 +12,7 @@ components:
     title: Orchestrated delivery
     active: true
     description: Guided multi-agent software delivery workflow.
-    includes: Skill + 6 custom agents
+    includes: Skill + 7 custom agents
     resources:
       - source:
           kind: bundled
@@ -40,6 +41,11 @@ components:
         destination: agents/ui-designer.toml
       - source:
           kind: bundled
+          path: agents/developer.toml
+        install_root: codex_home
+        destination: agents/developer.toml
+      - source:
+          kind: bundled
           path: agents/tester.toml
         install_root: codex_home
         destination: agents/tester.toml
@@ -57,9 +63,9 @@ components:
     resources:
       - source:
           kind: bundled
-          path: skills/code-review
+          path: skills/orchestrated-code-review
         install_root: skills
-        destination: code-review
+        destination: orchestrated-code-review
 
   - id: grill-me
     title: Grill me

@@ -24,19 +24,19 @@ Before any work, classify the request into exactly one route. When uncertain, de
 `standard`. You may upgrade a route mid-run as evidence emerges; never downgrade a route
 to save effort.
 
-- `trivial`: delegate the obvious scoped change to `worker`, then delegate validation to
+- `trivial`: delegate the obvious scoped change to `developer`, then delegate validation to
   `tester`; iterate implement/validate for a **maximum of 3 cycles**. Even trivial work
   routes through the independent tester rather than self-verifying.
 - `bug-fix`: delegate to `discovery` when the path is unclear, delegate the smallest
-  root-cause fix to `worker`, then delegate validation to `tester`.
+  root-cause fix to `developer`, then delegate validation to `tester`.
 - `review`: delegate to `final_reviewer` (or `discovery` for recon) to inspect and report;
   do not modify anything unless explicitly requested.
 - `test-only`: delegate to `tester` to author or repair tests; make no production change.
   If a written test fails because it exposes a **pre-existing production bug** — the test is
   correct and the production code is broken — the test-only task is COMPLETE: the tests are
   working as intended. Do not loop to "fix" a correct test. Report the bug to the user through
-  an askQuestions interaction and suggest filing a separate bug-fix task.
-- `docs`: delegate the documentation update to `worker`, then verify accuracy, links, and
+  a structured user question and suggest filing a separate bug-fix task.
+- `docs`: delegate the documentation update to `developer`, then verify accuracy, links, and
   formatting.
 - `standard`: run the full phased route below.
 
@@ -50,9 +50,9 @@ of `prd.md`/`discovery.md`: avoid re-reading the plan artifacts while their hash
 unchanged, and re-read a full PLAN artifact only when its hash changed or a required summary
 field is missing (see the strict output contract below). Phase-**completion** gating stays
 tied to the tester/reviewer evidenced PASS, NEVER to the plan hash — the hash gate only
-suppresses redundant plan re-reads, it never skips verifying the worker's code output.
+suppresses redundant plan re-reads, it never skips verifying the developer's code output.
 
-- **Phase 0 — Clarify.** Resolve blocking ambiguity through askQuestions before any work
+- **Phase 0 — Clarify.** Resolve blocking ambiguity through a structured user question before any work
   begins. Do not guess past a decision that changes scope or architecture.
 - **Phase 1 — Discovery.** Delegate to `discovery` (read-only) to map the relevant code,
   conventions, impact, and version-sensitive behavior. Parallelize only independent
@@ -64,13 +64,13 @@ suppresses redundant plan re-reads, it never skips verifying the worker's code o
   independent review to `rubber_duck`, which returns PASS or CONCERNS. Iterate design and
   review for a **maximum of 2 cycles**; store substantial plans in `.agent-work/prd.md`
   using [references/prd-template.md](references/prd-template.md). Once the plan is reviewed,
-  confirm it with the user through an askQuestions interaction that always offers a free-text
+  confirm it with the user through a structured user question that always offers a free-text
   option. Do not begin implementation until the user confirms the plan.
 - **Phase 2.5 — UI.** Delegate to `ui_designer` when the change is UI-affected. Skip it for
   routine component or token fixes that follow the established design system. When a visual
-  preview is produced, present it to the user through an askQuestions interaction with a
+  preview is produced, present it to the user through a structured user question with a
   free-text option and obtain approval before proceeding to implementation.
-- **Phase 3 — Implementation.** For each todo item, delegate the change to `worker`, then
+- **Phase 3 — Implementation.** For each todo item, delegate the change to `developer`, then
   delegate validation to `tester`, which returns PASS or FAIL. Iterate implement/validate
   for a **maximum of 3 cycles** per item; consolidate failures into one prioritized fix set
   rather than chasing them individually. Reinforcing that batching: **conclude** the item on
@@ -85,10 +85,10 @@ suppresses redundant plan re-reads, it never skips verifying the worker's code o
 - **Phase 5 — Cleanup.** Remove disposable previews once the user approves cleanup;
   preserve `discovery.md` and `prd.md` as durable project records.
 
-## Never-stop / askQuestions contract
+## Never-stop / ask-the-user contract
 
 Stopping is a failure state. Whenever a loop limit is breached, a subagent reports BLOCKED,
-or material ambiguity surfaces, route through an askQuestions interaction that always offers
+or material ambiguity surfaces, ask the user through a structured user question that always offers
 a free-text option, and then continue the work from the answer. Never end a turn on a
 plain-text question. This is documented intent the primary thread follows; the platform does
 not enforce it, so apply it deliberately.
@@ -98,16 +98,17 @@ requirement-by-requirement evidence as a valid final report SHAPE. Auto-reprompt
 **only** when a required field is missing — never to punish a well-formed FAIL. Route a
 well-formed FAIL into the batched fix set rather than re-spawning to re-run it. Accepting the
 FAIL shape does not conclude the turn on an unresolved FAIL: the never-stop loop-limit
-askQuestions escalation still fires on a limit breach.
+escalation to the user still fires on a limit breach.
 
 ## Per-subagent model routing
 
 Agents pin their own models; this guidance explains the intent so delegation matches the
 work:
 
-- `gpt-6-sol` for demanding planning and holistic review (`spec_designer`, `rubber_duck`,
-  `final_reviewer`).
-- `gpt-5.6-terra` for read-heavy, UI, and test work (`ui_designer`, `tester`).
+- `gpt-6-sol` for demanding planning, design, and holistic review
+  (`final_reviewer`, `rubber_duck`, `spec_designer`, and `ui_designer`).
+- `gpt-5.6-terra` for implementation and test work
+  (`developer` and `tester`).
 - `gpt-6-luna` for narrow, fast reconnaissance (`discovery`).
 
 As guidance (not a per-agent hook): the `tester`'s read-heavy first pass therefore lands on
@@ -141,14 +142,15 @@ context:
 - **Docs Affected:** yes/no, split into user-facing versus dev-facing.
 - **Expected Output:** the exact report or artifact shape you expect back.
 - **Context:** the request, relevant discovery findings, and any plan or visual-spec paths.
-- **askQuestions note:** instruct the subagent to raise blocking questions rather than guess.
+- **Blocking questions:** instruct the subagent to return a Blocked report with its
+  questions rather than guess; subagents do not ask the user directly.
 - **Scoped digest:** the <=40-line slice of the plan this subagent needs — the target
   requirement, its acceptance criteria, and the files/interfaces it touches — lifted from the
   durable per-requirement digest `spec_designer` authored inside `.agent-work/prd.md` (and
   `rubber_duck` quality-gated) rather than synthesized fresh per spawn, with the full
   `.agent-work/prd.md` path given as fallback for anything the digest omits.
 
-Propagate the visual spec and the docs classification to `worker`, `tester`, and
+Propagate the visual spec and the docs classification to `developer`, `tester`, and
 `final_reviewer` so downstream work honors the same user-facing versus dev-facing split.
 
 ## Roster
@@ -157,11 +159,13 @@ Propagate the visual spec and the docs classification to `worker`, `tester`, and
 - `spec_designer` — requirements and technical design (PRD).
 - `rubber_duck` — independent PRD peer review (PASS/CONCERNS).
 - `ui_designer` — visual specification for substantial UI work.
+- `developer` — implements changes and fixes failures (Implementation, Fix, or
+  Blocked report).
 - `tester` — authors and runs tests (PASS/FAIL).
 - `final_reviewer` — read-only holistic final gate.
 
-Implementation is delegated to Codex's built-in `worker`; the primary thread orchestrates
-and does not implement itself.
+Implementation is delegated to `developer`; the primary thread orchestrates and does
+not implement itself.
 
 ## Maintain artifacts
 

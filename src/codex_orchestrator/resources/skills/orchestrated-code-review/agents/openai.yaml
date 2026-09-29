@@ -1,0 +1,8 @@
+# Generated from content/skills/code-review/SKILL.md by scripts/render_resources.py; do not edit.
+interface:
+  display_name: "Code Review"
+  short_description: "Review changes and verify prioritized findings"
+  default_prompt: "Use $orchestrated-code-review to review the current changes and write an independently verified code-review.md report."
+
+policy:
+  allow_implicit_invocation: false

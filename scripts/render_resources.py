@@ -102,6 +102,7 @@ class Renderer:
             lstrip_blocks=True,
             autoescape=False,
         )
+        self.env.filters["code_list"] = code_list
         self.agents = load_agents(content_root)
         self.skills = load_skills(content_root)
         skill_names = dict(vocabulary.get("skills") or {})
@@ -110,7 +111,17 @@ class Renderer:
             "product": vocabulary["product"],
             "invoke": vocabulary["invoke"],
             "agent_ext": vocabulary["agent_ext"],
+            "ask_user": vocabulary["ask_user"],
+            "tier_models": dict(vocabulary["tiers"]),
             "agents": {snake(agent.stem): self.agent_name(agent.stem) for agent in self.agents},
+            "agents_by_tier": {
+                tier: [
+                    self.agent_name(agent.stem)
+                    for agent in self.agents
+                    if agent.meta["tier"] == tier
+                ]
+                for tier in sorted(AGENT_TIERS)
+            },
             "skills": {
                 snake(skill.stem): skill_names.get(snake(skill.stem), skill.stem)
                 for skill in self.skills
@@ -167,7 +178,7 @@ class Renderer:
                     text, f"skills/{skill.stem}/{relative}"
                 )
         registry = self.content_root / "install-components.yaml.j2"
-        files["install-components.yaml"] = self.render(
+        files["install-components.yaml"] = generated_header(registry.name) + "\n" + self.render(
             registry.read_text(encoding="utf-8"), registry.name
         )
         return files
@@ -181,6 +192,7 @@ class Renderer:
             f"model = {basic_string(self.agent_model(agent))}",
             f"model_reasoning_effort = {basic_string(str(agent.meta['effort']))}",
         ]
+        lines.insert(0, generated_header(source))
         if agent.meta.get("read_only"):
             lines.append('sandbox_mode = "read-only"')
         lines.append(f'developer_instructions = """\n{body}"""')
@@ -191,7 +203,7 @@ class Renderer:
         explicit_only = bool(skill.meta.get("explicit_only"))
         if display is None and not explicit_only:
             return None
-        sections = []
+        sections = [generated_header(source)]
         if display is not None:
             if not isinstance(display, Mapping):
                 raise RenderError(f"{source}: display must be a mapping")
@@ -202,7 +214,20 @@ class Renderer:
             sections.append("\n".join(lines) + "\n")
         if explicit_only:
             sections.append("policy:\n  allow_implicit_invocation: false\n")
-        return "\n".join(sections)
+        return sections[0] + "\n" + "\n".join(sections[1:])
+
+
+def generated_header(source: str) -> str:
+    """A comment line for generated formats that allow one (TOML and YAML)."""
+    return f"# Generated from content/{source} by scripts/render_resources.py; do not edit."
+
+
+def code_list(names: list[str]) -> str:
+    """Join names as inline code: `a`, `b`, and `c`."""
+    quoted = [f"`{name}`" for name in names]
+    if len(quoted) <= 2:
+        return " and ".join(quoted)
+    return ", ".join(quoted[:-1]) + f", and {quoted[-1]}"
 
 
 def basic_string(value: str) -> str:

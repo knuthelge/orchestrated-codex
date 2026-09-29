@@ -1,5 +1,5 @@
 ---
-description: Deliver software changes through an adaptive workflow of task classification, codebase discovery, requirements and technical design, independent plan review, implementation, testing, UI verification, and final review. Use for feature implementation, bug fixes, refactors, code or PR reviews, test-only work, documentation changes, or complex multi-step engineering tasks where Codex should orchestrate specialized subagents and maintain clear acceptance criteria.
+description: Deliver software changes through an adaptive workflow of task classification, codebase discovery, requirements and technical design, independent plan review, implementation, testing, UI verification, and final review. Use for feature implementation, bug fixes, refactors, code or PR reviews, test-only work, documentation changes, or complex multi-step engineering tasks where {{ product }} should orchestrate specialized subagents and maintain clear acceptance criteria.
 explicit_only: true
 display:
   display_name: Orchestrated Delivery
@@ -18,7 +18,7 @@ delegate work whose result is immediately required for the next step. It does no
 production code, author tests, or perform the final review itself — each of those is
 delegated.
 
-This is instruction-based doctrine, applied best effort. Codex provides no primitive
+This is instruction-based doctrine, applied best effort. {{ product }} provides no primitive
 that structurally prevents the primary thread from implementing, so keep user intent and
 final responsibility in the primary thread.
 
@@ -28,19 +28,19 @@ Before any work, classify the request into exactly one route. When uncertain, de
 `standard`. You may upgrade a route mid-run as evidence emerges; never downgrade a route
 to save effort.
 
-- `trivial`: delegate the obvious scoped change to `worker`, then delegate validation to
+- `trivial`: delegate the obvious scoped change to `{{ agents.developer }}`, then delegate validation to
   `{{ agents.tester }}`; iterate implement/validate for a **maximum of 3 cycles**. Even trivial work
   routes through the independent tester rather than self-verifying.
 - `bug-fix`: delegate to `{{ agents.discovery }}` when the path is unclear, delegate the smallest
-  root-cause fix to `worker`, then delegate validation to `{{ agents.tester }}`.
+  root-cause fix to `{{ agents.developer }}`, then delegate validation to `{{ agents.tester }}`.
 - `review`: delegate to `{{ agents.final_reviewer }}` (or `{{ agents.discovery }}` for recon) to inspect and report;
   do not modify anything unless explicitly requested.
 - `test-only`: delegate to `{{ agents.tester }}` to author or repair tests; make no production change.
   If a written test fails because it exposes a **pre-existing production bug** — the test is
   correct and the production code is broken — the test-only task is COMPLETE: the tests are
   working as intended. Do not loop to "fix" a correct test. Report the bug to the user through
-  an askQuestions interaction and suggest filing a separate bug-fix task.
-- `docs`: delegate the documentation update to `worker`, then verify accuracy, links, and
+  {{ ask_user }} and suggest filing a separate bug-fix task.
+- `docs`: delegate the documentation update to `{{ agents.developer }}`, then verify accuracy, links, and
   formatting.
 - `standard`: run the full phased route below.
 
@@ -54,9 +54,9 @@ of `prd.md`/`discovery.md`: avoid re-reading the plan artifacts while their hash
 unchanged, and re-read a full PLAN artifact only when its hash changed or a required summary
 field is missing (see the strict output contract below). Phase-**completion** gating stays
 tied to the tester/reviewer evidenced PASS, NEVER to the plan hash — the hash gate only
-suppresses redundant plan re-reads, it never skips verifying the worker's code output.
+suppresses redundant plan re-reads, it never skips verifying the developer's code output.
 
-- **Phase 0 — Clarify.** Resolve blocking ambiguity through askQuestions before any work
+- **Phase 0 — Clarify.** Resolve blocking ambiguity through {{ ask_user }} before any work
   begins. Do not guess past a decision that changes scope or architecture.
 - **Phase 1 — Discovery.** Delegate to `{{ agents.discovery }}` (read-only) to map the relevant code,
   conventions, impact, and version-sensitive behavior. Parallelize only independent
@@ -68,13 +68,13 @@ suppresses redundant plan re-reads, it never skips verifying the worker's code o
   independent review to `{{ agents.rubber_duck }}`, which returns PASS or CONCERNS. Iterate design and
   review for a **maximum of 2 cycles**; store substantial plans in `.agent-work/prd.md`
   using [references/prd-template.md](references/prd-template.md). Once the plan is reviewed,
-  confirm it with the user through an askQuestions interaction that always offers a free-text
+  confirm it with the user through {{ ask_user }} that always offers a free-text
   option. Do not begin implementation until the user confirms the plan.
 - **Phase 2.5 — UI.** Delegate to `{{ agents.ui_designer }}` when the change is UI-affected. Skip it for
   routine component or token fixes that follow the established design system. When a visual
-  preview is produced, present it to the user through an askQuestions interaction with a
+  preview is produced, present it to the user through {{ ask_user }} with a
   free-text option and obtain approval before proceeding to implementation.
-- **Phase 3 — Implementation.** For each todo item, delegate the change to `worker`, then
+- **Phase 3 — Implementation.** For each todo item, delegate the change to `{{ agents.developer }}`, then
   delegate validation to `{{ agents.tester }}`, which returns PASS or FAIL. Iterate implement/validate
   for a **maximum of 3 cycles** per item; consolidate failures into one prioritized fix set
   rather than chasing them individually. Reinforcing that batching: **conclude** the item on
@@ -82,17 +82,17 @@ suppresses redundant plan re-reads, it never skips verifying the worker's code o
   PASS. Independent todo items — those with no shared files
   and no data dependencies — may be delegated in parallel; keep items with dependencies
   sequential, and when in doubt run them sequentially, favoring correctness over speed. The
-  `{{ agents.tester }}`'s read-heavy first pass runs on its already-cheaper tier (`gpt-5.6-terra`);
+  `{{ agents.tester }}`'s read-heavy first pass runs on its already-cheaper tier (`{{ tier_models.standard }}`);
   escalating that item to a top-tier re-check on a FAIL is an orchestrator-driven re-spawn.
 - **Phase 4 — Final review.** Delegate to `{{ agents.final_reviewer }}` for a **maximum of 3 cycles**.
   Skip a separate final review only for trivial, already-verified low-risk changes.
 - **Phase 5 — Cleanup.** Remove disposable previews once the user approves cleanup;
   preserve `discovery.md` and `prd.md` as durable project records.
 
-## Never-stop / askQuestions contract
+## Never-stop / ask-the-user contract
 
 Stopping is a failure state. Whenever a loop limit is breached, a subagent reports BLOCKED,
-or material ambiguity surfaces, route through an askQuestions interaction that always offers
+or material ambiguity surfaces, ask the user through {{ ask_user }} that always offers
 a free-text option, and then continue the work from the answer. Never end a turn on a
 plain-text question. This is documented intent the primary thread follows; the platform does
 not enforce it, so apply it deliberately.
@@ -102,25 +102,27 @@ requirement-by-requirement evidence as a valid final report SHAPE. Auto-reprompt
 **only** when a required field is missing — never to punish a well-formed FAIL. Route a
 well-formed FAIL into the batched fix set rather than re-spawning to re-run it. Accepting the
 FAIL shape does not conclude the turn on an unresolved FAIL: the never-stop loop-limit
-askQuestions escalation still fires on a limit breach.
+escalation to the user still fires on a limit breach.
 
 ## Per-subagent model routing
 
 Agents pin their own models; this guidance explains the intent so delegation matches the
 work:
 
-- `gpt-6-sol` for demanding planning and holistic review (`{{ agents.spec_designer }}`, `{{ agents.rubber_duck }}`,
-  `{{ agents.final_reviewer }}`).
-- `gpt-5.6-terra` for read-heavy, UI, and test work (`{{ agents.ui_designer }}`, `{{ agents.tester }}`).
-- `gpt-6-luna` for narrow, fast reconnaissance (`{{ agents.discovery }}`).
+- `{{ tier_models.deep }}` for demanding planning, design, and holistic review
+  ({{ agents_by_tier.deep | code_list }}).
+- `{{ tier_models.standard }}` for implementation and test work
+  ({{ agents_by_tier.standard | code_list }}).
+- `{{ tier_models.fast }}` for narrow, fast reconnaissance ({{ agents_by_tier.fast | code_list }}).
 
 As guidance (not a per-agent hook): the `{{ agents.tester }}`'s read-heavy first pass therefore lands on
-the cheaper `gpt-5.6-terra` tier, and escalation to a top-tier re-check on a FAIL is an
-orchestrator-driven re-spawn rather than an in-agent switch. `{{ agents.rubber_duck }}` stays on `gpt-6-sol`
+the cheaper `{{ tier_models.standard }}` tier, and escalation to a top-tier re-check on a FAIL is an
+orchestrator-driven re-spawn rather than an in-agent switch. `{{ agents.rubber_duck }}` stays on `{{ tier_models.deep }}`
 to keep the review gate at the top tier.
 
 ## Context and waiting discipline
 
+{% if target == "codex" %}
 For independent delegations, spawn with `fork_turns: "none"` and provide a
 self-contained scoped digest: task, authoritative constraints, acceptance criteria,
 relevant paths/evidence, ownership, dependencies, and expected output. Use a partial or
@@ -133,6 +135,19 @@ idle with children outstanding, use one long `wait_agent` call (5–10 minutes);
 early on an update. Do not check status every minute. After a wake or timeout, process all
 queued results and inspect agent status only when it affects the next routing decision. A
 timeout alone does not mean a subagent is stalled.
+{% elif target == "claude" %}
+For independent delegations, launch the named subagent with a self-contained scoped digest:
+task, authoritative constraints, acceptance criteria, relevant paths/evidence, ownership,
+dependencies, and expected output. Subagents start with fresh context and never see this
+conversation, so the digest must stand on its own. Fresh context isolates conversation
+context, not filesystem access or permissions.
+
+Run independent subagents in the background while useful non-overlapping work remains. You
+are notified when each one finishes, so never poll, sleep, or check status in a loop. When
+genuinely idle with children outstanding, end the turn and resume on the completion
+notification. Process all completed results together and inspect a subagent only when it
+affects the next routing decision. A long-running subagent is not necessarily stalled.
+{% endif %}
 
 ## Structured subagent prompt contract
 
@@ -145,14 +160,15 @@ context:
 - **Docs Affected:** yes/no, split into user-facing versus dev-facing.
 - **Expected Output:** the exact report or artifact shape you expect back.
 - **Context:** the request, relevant discovery findings, and any plan or visual-spec paths.
-- **askQuestions note:** instruct the subagent to raise blocking questions rather than guess.
+- **Blocking questions:** instruct the subagent to return a Blocked report with its
+  questions rather than guess; subagents do not ask the user directly.
 - **Scoped digest:** the <=40-line slice of the plan this subagent needs — the target
   requirement, its acceptance criteria, and the files/interfaces it touches — lifted from the
   durable per-requirement digest `{{ agents.spec_designer }}` authored inside `.agent-work/prd.md` (and
   `{{ agents.rubber_duck }}` quality-gated) rather than synthesized fresh per spawn, with the full
   `.agent-work/prd.md` path given as fallback for anything the digest omits.
 
-Propagate the visual spec and the docs classification to `worker`, `{{ agents.tester }}`, and
+Propagate the visual spec and the docs classification to `{{ agents.developer }}`, `{{ agents.tester }}`, and
 `{{ agents.final_reviewer }}` so downstream work honors the same user-facing versus dev-facing split.
 
 ## Roster
@@ -161,11 +177,13 @@ Propagate the visual spec and the docs classification to `worker`, `{{ agents.te
 - `{{ agents.spec_designer }}` — requirements and technical design (PRD).
 - `{{ agents.rubber_duck }}` — independent PRD peer review (PASS/CONCERNS).
 - `{{ agents.ui_designer }}` — visual specification for substantial UI work.
+- `{{ agents.developer }}` — implements changes and fixes failures (Implementation, Fix, or
+  Blocked report).
 - `{{ agents.tester }}` — authors and runs tests (PASS/FAIL).
 - `{{ agents.final_reviewer }}` — read-only holistic final gate.
 
-Implementation is delegated to Codex's built-in `worker`; the primary thread orchestrates
-and does not implement itself.
+Implementation is delegated to `{{ agents.developer }}`; the primary thread orchestrates and does
+not implement itself.
 
 ## Maintain artifacts
 

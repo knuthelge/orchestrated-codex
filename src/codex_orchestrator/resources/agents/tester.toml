@@ -1,3 +1,4 @@
+# Generated from content/agents/tester.md by scripts/render_resources.py; do not edit.
 name = "tester"
 description = "Authors and runs tests for an implementation, verifying it against requirements with static checks, runtime evidence, documentation review, and browser inspection when applicable."
 model = "gpt-5.6-terra"

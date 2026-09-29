@@ -24,7 +24,7 @@ steps. Set a step to `in-progress` immediately before starting it and to `comple
 immediately after finishing it; never mark work complete in advance. Keep the checklist after
 the review as evidence of the coverage and finding-validation gates that ran.
 
-If a planning mechanism is also available in the current Codex environment, it may mirror
+If a planning mechanism is also available in the current {{ product }} environment, it may mirror
 the file-backed checklist, but it does not replace it. Do not depend on Copilot-specific todo
 or extension tools.
 

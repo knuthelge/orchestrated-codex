@@ -40,7 +40,7 @@ class RegistryTests(unittest.TestCase):
         )
         delivery = registry.by_id["orchestrated-delivery"]
         self.assertTrue(all(component.active for component in registry.components))
-        self.assertEqual(len(delivery.resources), 7)
+        self.assertEqual(len(delivery.resources), 8)
         self.assertEqual(delivery.depends_on, ())
         self.assertTrue(
             all(isinstance(resource.source, BundledSource) for resource in delivery.resources)

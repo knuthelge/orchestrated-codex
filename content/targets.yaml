@@ -4,6 +4,7 @@ codex:
   output: src/codex_orchestrator/resources
   product: Codex
   invoke: "$"
+  ask_user: a structured user question
   agent_format: codex
   agent_name_style: snake
   agent_ext: .toml
@@ -11,3 +12,5 @@ codex:
     deep: gpt-6-sol
     standard: gpt-5.6-terra
     fast: gpt-6-luna
+  skills:
+    code_review: orchestrated-code-review
