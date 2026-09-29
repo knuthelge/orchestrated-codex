@@ -14,3 +14,19 @@ codex:
     fast: gpt-6-luna
   skills:
     code_review: orchestrated-code-review
+
+claude:
+  output: packages/orchestrated-claude/src/claude_orchestrator/resources
+  engine_mirror: packages/orchestrated-claude/src/claude_orchestrator
+  product: Claude Code
+  invoke: "/"
+  ask_user: a structured user question (the AskUserQuestion tool)
+  agent_format: claude
+  agent_name_style: kebab
+  agent_ext: .md
+  tiers:
+    deep: opus
+    standard: sonnet
+    fast: haiku
+  skills:
+    code_review: orchestrated-code-review

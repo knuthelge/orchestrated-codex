@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.11"
 
+[manifest]
+members = [
+    "orchestrated-claude",
+    "orchestrated-codex",
+]
+
 [[package]]
 name = "jinja2"
 version = "3.1.6"
@@ -89,6 +95,23 @@ wheels = [
 ]
 
 [[package]]
+name = "orchestrated-claude"
+version = "0.1.13"
+source = { editable = "packages/orchestrated-claude" }
+dependencies = [
+    { name = "prompt-toolkit" },
+    { name = "pyyaml" },
+    { name = "questionary" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "prompt-toolkit", specifier = ">=3.0.52,<4" },
+    { name = "pyyaml", specifier = ">=6.0.3,<7" },
+    { name = "questionary", specifier = ">=2.1.1,<3" },
+]
+
+[[package]]
 name = "orchestrated-codex"
 version = "0.1.13"
 source = { editable = "." }
@@ -101,6 +124,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "jinja2" },
+    { name = "orchestrated-claude" },
 ]
 
 [package.metadata]
@@ -111,7 +135,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "jinja2", specifier = ">=3.1.6,<4" }]
+dev = [
+    { name = "jinja2", specifier = ">=3.1.6,<4" },
+    { name = "orchestrated-claude", editable = "packages/orchestrated-claude" },
+]
 
 [[package]]
 name = "prompt-toolkit"
