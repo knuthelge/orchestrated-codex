@@ -1,7 +1,10 @@
-# Per-harness vocabulary for scripts/render_resources.py. Templates under content/ read
+# Per-harness vocabulary and package metadata for scripts/export.py. Templates under content/ read
 # these values; an unknown key fails the render.
 codex:
-  output: src/codex_orchestrator/resources
+  package:
+    module: codex_orchestrator
+    description: Install Codex delivery and code-review skills with focused custom agents.
+    keywords: [codex, orchestration, developer-tools]
   product: Codex
   invoke: "$"
   ask_user: a structured user question
@@ -16,9 +19,10 @@ codex:
     code_review: orchestrated-code-review
 
 claude:
-  output: packages/orchestrated-claude/src/claude_orchestrator/resources
-  engine_mirror: packages/orchestrated-claude/src/claude_orchestrator
-  readme_mirror: packages/orchestrated-claude/README.md
+  package:
+    module: claude_orchestrator
+    description: Install Claude Code delivery and code-review skills with focused custom agents.
+    keywords: [claude, claude-code, orchestration, developer-tools]
   product: Claude Code
   invoke: "/"
   ask_user: a structured user question (the AskUserQuestion tool)

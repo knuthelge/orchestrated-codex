@@ -1,34 +1,39 @@
-"""Render harness-specific skills, agents, and the component registry from content/.
+"""Export the consumer packages from the one orchestrated codebase.
 
 Run from the repository root:
 
-    uv run scripts/render_resources.py          # write every target's generated resources
-    uv run scripts/render_resources.py --check  # fail when committed output is stale
+    uv run scripts/export.py                    # export every package into build/
+    uv run scripts/export.py --target claude    # export one package
+    uv build build/orchestrated-claude          # then build it
 
-Sources under content/ are the single source of truth. Generated resource directories are
-owned entirely by this renderer: files it no longer produces are removed on write. A target
-may also declare an engine_mirror directory, which receives verbatim copies of the canonical
-installer engine modules from src/codex_orchestrator (the other files there are hand-written),
-and a readme_mirror path, which receives a verbatim copy of the project README.
+Each exported package is a complete, self-contained project: a pyproject.toml, this
+repository's README, the installer engine from src/orchestrated, an entry point that
+activates the package's target, and the resources rendered for that target from content/.
+The version, dependencies, and classifiers come from the root pyproject.toml, so both
+packages always share one version. Nothing exported is committed.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
-from collections.abc import Mapping
+import tomllib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import jinja2
 import yaml
 
+from orchestrated.targets import TARGETS
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONTENT_DIR = "content"
 AGENT_TIERS = frozenset({"deep", "standard", "fast"})
-ENGINE_SOURCE = "src/codex_orchestrator"
-ENGINE_FILES = ("__main__.py", "cli.py", "registry.py", "sources.py", "target.py")
+ENGINE_SOURCE = "src/orchestrated"
+ENGINE_FILES = ("cli.py", "registry.py", "runtime.py", "sources.py", "targets.py")
 CLAUDE_EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
 
 
@@ -244,7 +249,7 @@ class Renderer:
 
 def generated_header(source: str) -> str:
     """A comment line for generated formats that allow one (TOML and YAML)."""
-    return f"# Generated from content/{source} by scripts/render_resources.py; do not edit."
+    return f"# Generated from content/{source} by scripts/export.py; do not edit."
 
 
 def code_list(names: list[str]) -> str:
@@ -285,122 +290,132 @@ def load_targets(content_root: Path) -> dict[str, dict[str, object]]:
     return targets
 
 
-def render_targets(repo_root: Path) -> dict[Path, dict[str, str]]:
-    """Return each target's output directory mapped to its generated files."""
+def render_target(repo_root: Path, name: str) -> dict[str, str]:
+    """Render one target's bundled resources, keyed by path under the resource root."""
     content_root = repo_root / CONTENT_DIR
-    outputs: dict[Path, dict[str, str]] = {}
-    for target, vocabulary in load_targets(content_root).items():
-        output = repo_root / str(vocabulary["output"])
-        outputs[output] = Renderer(content_root, target, vocabulary).render_all()
-    return outputs
+    targets = load_targets(content_root)
+    if name not in targets:
+        raise RenderError(f"unknown target {name!r}; expected one of {sorted(targets)}")
+    return Renderer(content_root, name, targets[name]).render_all()
 
 
-def mirror_targets(repo_root: Path) -> dict[Path, dict[str, str]]:
-    """Return each mirror directory mapped to the verbatim copies it must contain."""
-    engine = repo_root / ENGINE_SOURCE
-    mirrors: dict[Path, dict[str, str]] = {}
-    for vocabulary in load_targets(repo_root / CONTENT_DIR).values():
-        mirror = vocabulary.get("engine_mirror")
-        if mirror:
-            mirrors.setdefault(repo_root / str(mirror), {}).update(
-                {name: (engine / name).read_text(encoding="utf-8") for name in ENGINE_FILES}
-            )
-        readme = vocabulary.get("readme_mirror")
-        if readme:
-            destination = repo_root / str(readme)
-            mirrors.setdefault(destination.parent, {})[destination.name] = (
-                repo_root / "README.md"
-            ).read_text(encoding="utf-8")
-    return mirrors
+def write_tree(files: Mapping[str, str], root: Path) -> None:
+    for name, text in sorted(files.items()):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
 
 
-def existing_files(output: Path) -> set[str]:
-    if not output.is_dir():
-        return set()
-    return {
-        path.relative_to(output).as_posix()
-        for path in output.rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
+def toml_list(values: Sequence[str]) -> str:
+    return "[\n" + "".join(f"    {basic_string(value)},\n" for value in values) + "]"
+
+
+def package_files(repo_root: Path, name: str) -> tuple[str, dict[str, str]]:
+    """Return a target's distribution name and the complete source tree of its package."""
+    if name not in TARGETS:
+        raise RenderError(f"unknown target {name!r}; expected one of {sorted(TARGETS)}")
+    target = TARGETS[name]
+    package = load_targets(repo_root / CONTENT_DIR)[name]["package"]
+    module = str(package["module"])
+    with (repo_root / "pyproject.toml").open("rb") as file:
+        root_project = tomllib.load(file)
+    project = root_project["project"]
+    version = str(project["version"])
+    classifiers = [
+        classifier for classifier in project["classifiers"]
+        if not classifier.startswith("Private ::")
+    ]
+    source = f"src/{module}"
+    files = {
+        "pyproject.toml": f"""# Exported from the orchestrated codebase by scripts/export.py; do not edit.
+[build-system]
+requires = {toml_list(root_project["build-system"]["requires"])}
+build-backend = {basic_string(root_project["build-system"]["build-backend"])}
+
+[project]
+name = {basic_string(target.distribution)}
+version = {basic_string(version)}
+description = {basic_string(str(package["description"]))}
+readme = "README.md"
+requires-python = {basic_string(project["requires-python"])}
+dependencies = {toml_list(project["dependencies"])}
+keywords = {toml_list([str(keyword) for keyword in package["keywords"]])}
+classifiers = {toml_list(classifiers)}
+
+[project.scripts]
+{target.distribution} = "{module}.entry:main"
+
+[tool.uv.build-backend]
+module-name = "{module}"
+module-root = "src"
+""",
+        "README.md": (repo_root / "README.md").read_text(encoding="utf-8"),
+        f"{source}/__init__.py": f'''"""{target.product} orchestrated delivery installer, exported from the orchestrated codebase."""
+
+__version__ = {basic_string(version)}
+''',
+        f"{source}/entry.py": f'''"""Command-line entry point for {target.distribution}."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+
+from . import cli, runtime
+from .targets import TARGETS
+
+RESOURCE_ROOT = Path(__file__).resolve().parent / "resources"
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    runtime.activate(TARGETS[{basic_string(name)}], RESOURCE_ROOT)
+    return cli.main(argv)
+''',
+        f"{source}/__main__.py": '''from .entry import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+''',
     }
+    for engine_file in ENGINE_FILES:
+        files[f"{source}/{engine_file}"] = (
+            repo_root / ENGINE_SOURCE / engine_file
+        ).read_text(encoding="utf-8")
+    for relative, text in render_target(repo_root, name).items():
+        files[f"{source}/resources/{relative}"] = text
+    return target.distribution, files
 
 
-def check(repo_root: Path = REPO_ROOT) -> list[str]:
-    """Return one message per generated file that is missing, stale, or unexpected."""
-    problems = []
-    for output, files in render_targets(repo_root).items():
-        label = output.relative_to(repo_root).as_posix()
-        on_disk = existing_files(output)
-        for name in sorted(on_disk - files.keys()):
-            problems.append(f"unexpected: {label}/{name}")
-        for name, text in sorted(files.items()):
-            path = output / name
-            if name not in on_disk:
-                problems.append(f"missing: {label}/{name}")
-            elif path.read_bytes() != text.encode("utf-8"):
-                problems.append(f"stale: {label}/{name}")
-    for mirror, files in mirror_targets(repo_root).items():
-        label = mirror.relative_to(repo_root).as_posix()
-        for name, text in sorted(files.items()):
-            path = mirror / name
-            if not path.is_file():
-                problems.append(f"missing: {label}/{name}")
-            elif path.read_bytes() != text.encode("utf-8"):
-                problems.append(f"stale: {label}/{name}")
-    return problems
-
-
-def write(repo_root: Path = REPO_ROOT) -> list[str]:
-    """Write every target's generated files and remove the ones no longer produced."""
-    changed = []
-    for output, files in render_targets(repo_root).items():
-        label = output.relative_to(repo_root).as_posix()
-        for name in sorted(existing_files(output) - files.keys()):
-            (output / name).unlink()
-            changed.append(f"removed: {label}/{name}")
-        for name, text in sorted(files.items()):
-            path = output / name
-            data = text.encode("utf-8")
-            if path.is_file() and path.read_bytes() == data:
-                continue
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-            changed.append(f"wrote: {label}/{name}")
-        for directory in sorted(
-            (path for path in output.rglob("*") if path.is_dir()),
-            key=lambda path: len(path.parts),
-            reverse=True,
-        ):
-            if not any(directory.iterdir()):
-                directory.rmdir()
-    for mirror, files in mirror_targets(repo_root).items():
-        label = mirror.relative_to(repo_root).as_posix()
-        for name, text in sorted(files.items()):
-            path = mirror / name
-            data = text.encode("utf-8")
-            if path.is_file() and path.read_bytes() == data:
-                continue
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-            changed.append(f"wrote: {label}/{name}")
-    return changed
+def export(repo_root: Path, out_root: Path, names: Sequence[str] | None = None) -> list[Path]:
+    """Export the named targets' packages (all by default), replacing earlier exports."""
+    exported = []
+    for name in names or list(TARGETS):
+        distribution, files = package_files(repo_root, name)
+        destination = out_root / distribution
+        if destination.exists():
+            shutil.rmtree(destination)
+        write_tree(files, destination)
+        exported.append(destination)
+    return exported
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--check", action="store_true", help="fail when committed output is stale"
+        "--out", type=Path, default=REPO_ROOT / "build", help="output directory (default: build/)"
+    )
+    parser.add_argument(
+        "--target", action="append", choices=sorted(TARGETS),
+        help="target to export; repeat for several (default: all)",
     )
     arguments = parser.parse_args(argv)
     try:
-        messages = check() if arguments.check else write()
+        exported = export(REPO_ROOT, arguments.out, arguments.target)
     except RenderError as error:
-        print(f"render error: {error}", file=sys.stderr)
+        print(f"export error: {error}", file=sys.stderr)
         return 2
-    for message in messages:
-        print(message)
-    if arguments.check and messages:
-        print("Generated resources are stale; run: uv run scripts/render_resources.py", file=sys.stderr)
-        return 1
+    for path in exported:
+        print(path)
     return 0
 
 

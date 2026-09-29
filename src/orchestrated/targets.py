@@ -1,14 +1,13 @@
 """Harness targets: every value that differs between the Codex and Claude Code installers.
 
-The installer engine (cli, registry, sources) is shared verbatim by both distributions and
-reads harness-specific values only from the target selected in each package's _active.py.
+The installer engine (cli, registry, sources) serves both harnesses and reads
+harness-specific values only from the target activated in runtime.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -27,7 +26,6 @@ class Target:
     skills_under_config_home: bool
     skills_dir: str
     skills_label: str
-    legacy_install_roots: Mapping[str, str] = field(default_factory=dict)
 
     def default_home(self) -> Path:
         """The config home: the target's environment variable when set, else its default."""
@@ -50,7 +48,6 @@ CODEX = Target(
     skills_under_config_home=False,
     skills_dir=".agents/skills",
     skills_label=".agents/skills",
-    legacy_install_roots={"codex_home": "config_home"},
 )
 
 CLAUDE = Target(
@@ -66,3 +63,5 @@ CLAUDE = Target(
     skills_dir="skills",
     skills_label="skills",
 )
+
+TARGETS = {"codex": CODEX, "claude": CLAUDE}

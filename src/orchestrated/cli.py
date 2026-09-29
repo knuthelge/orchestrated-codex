@@ -19,7 +19,7 @@ from pathlib import Path
 import questionary
 from prompt_toolkit.layout.controls import FormattedTextControl
 
-from ._active import TARGET
+from . import runtime
 from .registry import (
     BundledSource,
     ComponentRegistry,
@@ -29,10 +29,8 @@ from .registry import (
     resolve_components,
 )
 from .sources import GitHubSourceResolver, SourceError
+from .targets import Target
 
-RESOURCE_ROOT = Path(__file__).resolve().parent / "resources"
-REGISTRY_PATH = RESOURCE_ROOT / "install-components.yaml"
-MANIFEST_NAME = TARGET.manifest_name
 MANIFEST_VERSION = 4
 INSTALLER_STYLE = questionary.Style(
     [
@@ -59,14 +57,26 @@ def _hide_prompt_cursor(prompt: questionary.Question) -> None:
             control.show_cursor = False
 
 
+def target() -> Target:
+    return runtime.current().target
+
+
+def resource_root() -> Path:
+    return runtime.current().resource_root
+
+
+def manifest_name() -> str:
+    return target().manifest_name
+
+
 def resolve_agents_root() -> Path:
     """The target's config home, which hosts agents/ and the installation manifest."""
-    return TARGET.default_home()
+    return target().default_home()
 
 
 def resolve_skill_root(home: Path | None = None) -> Path:
     """The target's documented skills root for the given (or default) config home."""
-    return TARGET.skill_root(home if home is not None else resolve_agents_root())
+    return target().skill_root(home if home is not None else resolve_agents_root())
 
 
 def digest(path: Path) -> str:
@@ -85,7 +95,7 @@ def _regular_file(path: Path) -> bool:
 
 
 def default_registry() -> ComponentRegistry:
-    return load_registry(REGISTRY_PATH, RESOURCE_ROOT)
+    return load_registry(resource_root() / "install-components.yaml", resource_root())
 
 
 def _expand(
@@ -224,7 +234,7 @@ def load_manifest(path: Path) -> dict[str, object] | None:
         ) from error
     if not isinstance(data, dict):
         raise RuntimeError(f"Invalid installation manifest: {path}")
-    if data.get("installer") != TARGET.installer_id:
+    if data.get("installer") != target().installer_id:
         raise RuntimeError(f"Refusing to use an unrecognized manifest: {path}")
     return data
 
@@ -307,7 +317,7 @@ def print_install_report(
     def display_path(path: Path) -> str:
         # Check the deeper root first: a skills root may sit inside the config home.
         labelled_roots = sorted(
-            ((skill_root, TARGET.skills_label), (agents_root, None)),
+            ((skill_root, target().skills_label), (agents_root, None)),
             key=lambda item: len(item[0].parts),
             reverse=True,
         )
@@ -525,7 +535,7 @@ def installed_component_ids(
             raise RuntimeError("Invalid components section in installation manifest")
         return set(components) & set(registry.by_id)
 
-    manifest_path = agents_root / MANIFEST_NAME
+    manifest_path = agents_root / manifest_name()
     recorded_paths = set(
         _recorded_hashes(manifest, manifest_path, agents_root, skill_root)
     )
@@ -590,7 +600,7 @@ def install(
             for resource in component.resources
         )
     )
-    manifest_path = agents_root / MANIFEST_NAME
+    manifest_path = agents_root / manifest_name()
     previous = load_manifest(manifest_path)
     recorded = _recorded_hashes(previous, manifest_path, agents_root, skill_root)
     _recorded_provenance(previous, manifest_path, agents_root, skill_root, recorded)
@@ -608,11 +618,11 @@ def install(
         for resource in component.resources:
             if isinstance(resource.source, GitHubSource):
                 selected_sources.setdefault(resource.source.repository, set()).add(resource.source.path)
-    with tempfile.TemporaryDirectory(prefix=f"{TARGET.installer_id}-sources-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=f"{target().installer_id}-sources-") as temporary:
         materialized: dict[str, object] = {}
         if selected_sources:
             with _remote_source_status(show_remote_status):
-                resolver = GitHubSourceResolver()
+                resolver = GitHubSourceResolver(user_agent=target().distribution)
                 for repository_id, paths in selected_sources.items():
                     repository = (registry.repositories or {})[repository_id]
                     try:
@@ -637,7 +647,7 @@ def _install_resolved(
     materialized: dict[str, object],
     preserve_existing_remote: bool,
 ) -> int:
-    manifest_path = agents_root / MANIFEST_NAME
+    manifest_path = agents_root / manifest_name()
     previous = load_manifest(manifest_path)
     recorded_hashes = _recorded_hashes(previous, manifest_path, agents_root, skill_root)
     previous_owners = _recorded_owners(previous, manifest_path, agents_root, skill_root)
@@ -775,7 +785,7 @@ def _install_resolved(
     write_manifest(
         manifest_path,
         {
-            "installer": TARGET.installer_id,
+            "installer": target().installer_id,
             "version": MANIFEST_VERSION,
             "components": [component.id for component in components] + sorted(retained_remote_ids - {component.id for component in components}),
             "files": installed,
@@ -795,13 +805,13 @@ def _install_resolved(
     component_names = ", ".join(component.title for component in components)
     print(
         f"Installation complete: {component_names}.\n"
-        f"Restart {TARGET.product} or start a new conversation.\nManifest: {manifest_path}"
+        f"Restart {target().product} or start a new conversation.\nManifest: {manifest_path}"
     )
     return 0
 
 
 def uninstall(agents_root: Path, skill_root: Path) -> int:
-    manifest_path = agents_root / MANIFEST_NAME
+    manifest_path = agents_root / manifest_name()
     manifest = load_manifest(manifest_path)
     if manifest is None:
         print(f"Nothing to uninstall; manifest not found: {manifest_path}")
@@ -871,7 +881,7 @@ def select_components(
         if any(isinstance(resource.source, GitHubSource) for resource in component.resources)
     )
     print()
-    print(f"{BOLD}Choose the {TARGET.product} components to install, update, or remove.{RESET}")
+    print(f"{BOLD}Choose the {target().product} components to install, update, or remove.{RESET}")
     print()
     print(f"{BOLD}Available components:{RESET}")
     for heading, components in (("First-party", first_party), ("Third-party", third_party)):
@@ -986,7 +996,7 @@ def parse_component_ids(value: str) -> tuple[str, ...]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=f"Install or remove the {TARGET.product} orchestrated delivery skills and custom agents."
+        description=f"Install or remove the {target().product} orchestrated delivery skills and custom agents."
     )
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument(
@@ -1014,11 +1024,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     default_root = resolve_agents_root()
     parser.add_argument(
-        TARGET.home_flag,
+        target().home_flag,
         dest="home",
         type=Path,
         default=default_root,
-        help=f"{TARGET.product} {TARGET.home_help} (default: {default_root}).",
+        help=f"{target().product} {target().home_help} (default: {default_root}).",
     )
     return parser
 
@@ -1083,7 +1093,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         + ", ".join(inactive)
                     )
             else:
-                manifest = load_manifest(agents_root / MANIFEST_NAME)
+                manifest = load_manifest(agents_root / manifest_name())
                 preselected = installed_component_ids(
                     manifest, agents_root, skill_root, registry
                 )

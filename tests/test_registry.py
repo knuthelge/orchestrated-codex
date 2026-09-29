@@ -7,8 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_orchestrator import cli
-from codex_orchestrator.registry import (
+import support
+from orchestrated import cli
+from orchestrated.registry import (
     BundledSource,
     GitHubSource,
     RegistryError,
@@ -17,8 +18,9 @@ from codex_orchestrator.registry import (
 )
 
 
-class RegistryTests(unittest.TestCase):
+class RegistryTests(support.TargetMixin):
     def setUp(self) -> None:
+        super().setUp()
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)
         (self.root / "one.txt").write_text("one", encoding="utf-8")
@@ -87,6 +89,10 @@ class RegistryTests(unittest.TestCase):
             ),
         }
         for component_id, expected_resources in expected_remote_resources.items():
+            expected_resources = tuple(
+                resource for resource in expected_resources
+                if self.skill_metadata or not resource[0].endswith("/openai.yaml")
+            )
             with self.subTest(component=component_id):
                 resources = registry.by_id[component_id].resources
                 self.assertEqual(
@@ -176,7 +182,7 @@ components:
         self.assertEqual((skills_root / "base/one.txt").read_text(), "one")
         self.assertEqual((skills_root / "feature/two.txt").read_text(), "two")
         manifest = json.loads(
-            (agents_root / cli.MANIFEST_NAME).read_text(encoding="utf-8")
+            (agents_root / cli.manifest_name()).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["components"], ["base", "feature"])
 
@@ -600,6 +606,15 @@ components:
                 )
                 with self.assertRaisesRegex(RegistryError, expected_error):
                     load_registry(self.registry_path, self.root)
+
+
+
+class CodexRegistryTests(RegistryTests, unittest.TestCase):
+    target_name = "codex"
+
+
+class ClaudeRegistryTests(RegistryTests, unittest.TestCase):
+    target_name = "claude"
 
 
 if __name__ == "__main__":

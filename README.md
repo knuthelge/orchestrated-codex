@@ -36,7 +36,7 @@ more components, and Enter to install the selected set. Previously installed com
 preselected; deselecting one removes its unchanged files while preserving locally modified
 files.
 
-To run from source instead, use a checkout and pick the harness with `--codex` (the default)
+To run from source instead, use a checkout and pick the harness with `--codex`
 or `--claude`:
 
 ```sh
@@ -186,47 +186,43 @@ now goes to the installed `developer` agent.
 
 ## Development
 
+This repository is one codebase. The two packages published to PyPI are exported from it at
+build time; neither exists as hand-edited source.
+
+```
+src/orchestrated/     installer engine (cli, registry, sources, runtime) and targets.py,
+                      which defines the Codex and Claude Code targets side by side
+content/              skills, agents, and the component registry, written once
+scripts/export.py     renders each target's resources and exports its package
+main.py               runs the codebase directly: --codex or --claude
+tests/                test the codebase; target-dependent tests run once per target
+```
+
 Run the tests from a checkout:
 
 ```sh
 uv run python -m unittest discover -s tests
 ```
 
-The repository builds both distributions from one source. `orchestrated-codex` is the
-project at the repository root; `orchestrated-claude` is a uv workspace member in
-`packages/orchestrated-claude`.
+Everything that differs between harnesses is in `src/orchestrated/targets.py` (install
+roots, home variable and flag, manifest name, installer ID, product name) and
+`content/targets.yaml` (resource vocabulary and package metadata). The engine reads the
+active target at run time: each exported package's entry point, and `main.py`, activates
+one target and its rendered resources before running it.
 
-Skills, agents, and the component registry are authored once under `content/` and
-rendered into each harness's native format:
+Skills, agents, and the component registry live under `content/` and are rendered into each
+harness's native format: Codex agent TOML files with `openai.yaml` skill metadata, and
+Claude Code agent and skill Markdown with frontmatter. `content/targets.yaml` holds each
+harness's vocabulary (model tiers, agent naming, invocation prefix, ask-the-user wording);
+sources reference it through Jinja placeholders such as `{{ agents.tester }}`,
+`{{ product }}`, and `{{ invoke }}{{ skills.code_review }}`. Use a
+`{% if target == "codex" %}` block only where the harnesses behave differently, not merely
+where they name things differently. Agent sources are Markdown with `description`, `tier`
+(`deep`, `standard`, or `fast`), `effort`, and `read_only` frontmatter and the instructions
+as the body; an optional `model:` mapping overrides the tier model per target.
 
-- `src/codex_orchestrator/resources/`: Codex agent TOML files, skills, and `openai.yaml`
-  skill metadata.
-- `packages/orchestrated-claude/src/claude_orchestrator/resources/`: Claude Code agent
-  Markdown files and skills.
-
-Both resource directories are generated: edit `content/`, never the generated files.
-`content/targets.yaml` holds each harness's vocabulary (model tiers, agent naming,
-invocation prefix, ask-the-user wording); sources reference it through Jinja placeholders
-such as `{{ agents.tester }}`, `{{ product }}`, and `{{ invoke }}{{ skills.code_review }}`.
-Use a `{% if target == "codex" %}` block only where the harnesses behave differently, not
-merely where they name things differently. Agent sources are Markdown with `description`,
-`tier` (`deep`, `standard`, or `fast`), `effort`, and `read_only` frontmatter and the
-instructions as the body; an optional `model:` mapping overrides the tier model per target.
-
-The installer engine (`cli.py`, `registry.py`, `sources.py`, `target.py`, `__main__.py`) is
-authored in `src/codex_orchestrator/` and copied verbatim into the Claude package by the
-renderer, as is this README. Everything that differs between harnesses lives in
-`target.py`; each package's hand-written `_active.py` selects its target. Re-render after
-editing sources, the engine, or this README, and commit the result; the test suite and the
-release workflow fail when committed output is stale:
-
-```sh
-uv run scripts/render_resources.py          # regenerate
-uv run scripts/render_resources.py --check  # verify only
-```
-
-Installable choices are defined in `content/install-components.yaml.j2`, rendered to each
-package's `resources/install-components.yaml`. Its schema-v2 component entries supply the
+Installable choices are defined in `content/install-components.yaml.j2`, rendered into
+each package's resources. Its schema-v2 component entries supply the
 checklist text, `active` state, optional dependencies, destination roots (`config_home` or
 `skills`), relative destinations, and resource sources. A source is either `kind: bundled`
 with a path relative to packaged resources, or `kind: github` with a named repository
@@ -259,18 +255,22 @@ their cataloged repository. All destinations must remain under a supported insta
 root, and no file may be installed inside a directory that another resource installs as a
 whole.
 
-Build the wheels and source distributions and inspect them:
+Export and build the packages:
 
 ```sh
-uv build --out-dir dist/codex
-uv build --out-dir dist/claude packages/orchestrated-claude
+uv run scripts/export.py                      # writes build/orchestrated-codex and build/orchestrated-claude
+uv build build/orchestrated-codex --out-dir dist/codex
+uv build build/orchestrated-claude --out-dir dist/claude
 ```
 
-The Codex distribution and command are named `orchestrated-codex`, with the importable
-module `codex_orchestrator`. The Claude Code distribution and command are named
-`orchestrated-claude`, with module `claude_orchestrator`.
+Each exported package contains a `pyproject.toml`, this README, the engine, an entry point
+that activates its target, and its rendered resources. The Codex package installs module
+`codex_orchestrator` and command `orchestrated-codex`; the Claude Code package installs
+module `claude_orchestrator` and command `orchestrated-claude`. The root project, named
+`orchestrated`, is never published.
 
-Both packages share one version. Update `version` in both `pyproject.toml` files and
-`__version__` in both packages together; a `vX.Y.Z` tag builds, tests, and smoke-tests both
-distributions and publishes both to PyPI. Running the publish workflow manually performs the
-same checks, builds, and smoke tests without publishing.
+Both packages take their version, dependencies, and classifiers from the root
+`pyproject.toml`, so a release updates one `version`. A `vX.Y.Z` tag tests the codebase,
+exports and builds both packages, smoke-tests all four distributions, and publishes both to
+PyPI. Running the publish workflow manually performs the same checks, builds, and smoke tests
+without publishing.

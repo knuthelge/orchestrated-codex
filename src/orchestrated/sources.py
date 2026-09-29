@@ -14,7 +14,6 @@ from pathlib import Path
 from types import MappingProxyType
 from urllib.parse import quote, urlsplit
 
-from ._active import TARGET
 from .registry import GitHubRepository
 
 
@@ -80,9 +79,11 @@ class HTTPSFetcher:
         self,
         limits: SourceLimits = SourceLimits(),
         clock: Callable[[], float] = time.monotonic,
+        user_agent: str = "orchestrated-delivery",
     ):
         self.limits = limits
         self.clock = clock
+        self.user_agent = user_agent
 
     def __call__(
         self,
@@ -119,7 +120,7 @@ class HTTPSFetcher:
             if remaining <= 0:
                 raise SourceError("GitHub request deadline exceeded")
             connection.sock.settimeout(min(self.limits.read_seconds, remaining))
-            headers = {"Accept": accept, "User-Agent": TARGET.distribution}
+            headers = {"Accept": accept, "User-Agent": self.user_agent}
             if expected_host == "api.github.com":
                 headers["X-GitHub-Api-Version"] = _API_VERSION
             connection.request("GET", parts.path, headers=headers)
@@ -197,10 +198,11 @@ class GitHubSourceResolver:
         fetch: Fetch | None = None,
         limits: SourceLimits = SourceLimits(),
         clock: Callable[[], float] = time.monotonic,
+        user_agent: str = "orchestrated-delivery",
     ):
         self.limits = limits
         self.clock = clock
-        self.fetch = fetch if fetch is not None else HTTPSFetcher(limits, clock)
+        self.fetch = fetch if fetch is not None else HTTPSFetcher(limits, clock, user_agent)
 
     def _get(self, url: str, maximum: int, host: str, accept: str) -> bytes:
         deadline = self.clock() + self.limits.request_seconds

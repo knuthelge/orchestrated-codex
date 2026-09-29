@@ -31,60 +31,34 @@ jobs:
       - name: Verify the release version
         run: |
           uv run --locked python - <<'PY'
-          import ast
           import os
           from pathlib import Path
           import re
           import tomllib
 
-          PACKAGES = {
-              "orchestrated-codex": (Path("pyproject.toml"), Path("src/codex_orchestrator/__init__.py")),
-              "orchestrated-claude": (
-                  Path("packages/orchestrated-claude/pyproject.toml"),
-                  Path("packages/orchestrated-claude/src/claude_orchestrator/__init__.py"),
-              ),
-          }
-
-          def module_version(path):
-              tree = ast.parse(path.read_text(), filename=str(path))
-              versions = []
-              for node in tree.body:
-                  if not isinstance(node, ast.Assign):
-                      continue
-                  if any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets):
-                      if not isinstance(node.value, ast.Constant) or not isinstance(node.value.value, str):
-                          raise SystemExit(f"{path}: __version__ must be a string literal")
-                      versions.append(node.value.value)
-              if len(versions) != 1:
-                  raise SystemExit(f"{path}: expected exactly one literal __version__ assignment")
-              return versions[0]
-
-          found = {}
-          for name, (pyproject, module) in PACKAGES.items():
-              with pyproject.open("rb") as file:
-                  found[f"{name} project"] = tomllib.load(file)["project"]["version"]
-              found[f"{name} module"] = module_version(module)
+          # Both packages are exported with the one version in the root pyproject.toml.
+          with Path("pyproject.toml").open("rb") as file:
+              version = tomllib.load(file)["project"]["version"]
           if os.environ["GITHUB_EVENT_NAME"] == "push":
               tag = os.environ["GITHUB_REF_NAME"]
               match = re.fullmatch(r"v([0-9]+\.[0-9]+\.[0-9]+)", tag)
               if match is None:
                   raise SystemExit(f"invalid release tag: {tag!r}; expected vX.Y.Z")
-              found["tag"] = match.group(1)
-          if len(set(found.values())) != 1:
-              raise SystemExit(f"release version mismatch: {found}")
-          print(f"release version verified: {next(iter(found.values()))} ({', '.join(found)})")
+              if match.group(1) != version:
+                  raise SystemExit(f"release version mismatch: tag={match.group(1)!r}, project={version!r}")
+          print(f"release version verified: {version}")
           PY
-
-      - name: Verify generated resources are current
-        run: uv run --locked scripts/render_resources.py --check
 
       - name: Run tests
         run: uv run --locked python -m unittest discover -s tests
 
+      - name: Export the packages
+        run: uv run --locked scripts/export.py --out build
+
       - name: Build distributions
         run: |
-          uv build --no-sources --out-dir dist/codex
-          uv build --no-sources --out-dir dist/claude packages/orchestrated-claude
+          uv build --no-sources --out-dir dist/codex build/orchestrated-codex
+          uv build --no-sources --out-dir dist/claude build/orchestrated-claude
           rm -f dist/codex/.gitignore dist/claude/.gitignore
 
       - name: Verify distribution artifacts

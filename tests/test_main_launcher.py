@@ -40,8 +40,11 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(launcher.main([*flags, "--uninstall"]), 0)
         return output.getvalue()
 
-    def test_defaults_to_codex(self) -> None:
-        self.assertIn("codex-orchestrator-install.json", self.uninstall_output())
+    def test_a_target_flag_is_required(self) -> None:
+        errors = io.StringIO()
+        with redirect_stderr(errors):
+            self.assertEqual(launcher.main(["--uninstall"]), 2)
+        self.assertIn("choose exactly one target: --codex or --claude", errors.getvalue())
 
     def test_codex_flag_selects_codex(self) -> None:
         self.assertIn("codex-orchestrator-install.json", self.uninstall_output("--codex"))
@@ -59,7 +62,7 @@ class LauncherTests(unittest.TestCase):
         errors = io.StringIO()
         with redirect_stderr(errors):
             self.assertEqual(launcher.main(["--codex", "--claude", "--uninstall"]), 2)
-        self.assertIn("only one of --codex and --claude", errors.getvalue())
+        self.assertIn("choose exactly one target", errors.getvalue())
 
 
 if __name__ == "__main__":
