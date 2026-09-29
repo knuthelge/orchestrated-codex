@@ -272,6 +272,5 @@ module `codex_orchestrator`. The Claude Code distribution and command are named
 
 Both packages share one version. Update `version` in both `pyproject.toml` files and
 `__version__` in both packages together; a `vX.Y.Z` tag builds, tests, and smoke-tests both
-distributions and publishes both to PyPI. To rehearse a release, run the publish workflow
-manually with `testpypi` enabled at a unique pre-release version such as `X.Y.Zrc1`; it
-publishes both packages to TestPyPI instead.
+distributions and publishes both to PyPI. Running the publish workflow manually performs the
+same checks, builds, and smoke tests without publishing.
