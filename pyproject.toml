@@ -7,7 +7,7 @@ build-backend = "uv_build"
 # their version, dependencies, and classifiers from this file.
 [project]
 name = "orchestrated"
-version = "0.1.13"
+version = "0.1.14"
 description = "Orchestrated delivery skills and subagents for Codex and Claude Code."
 readme = "README.md"
 requires-python = ">=3.11"
