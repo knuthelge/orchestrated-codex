@@ -154,12 +154,12 @@ The bundled components are the same for both harnesses:
 | Subagent | Role | Codex model | Claude Code model |
 |---|---|---|---|
 | `discovery` | Read-only codebase reconnaissance | `gpt-6-luna` | `haiku` |
-| `spec-designer` | Requirements and technical design | `gpt-6-sol` | `opus` |
-| `rubber-duck` | Independent PRD peer review (PASS/CONCERNS) | `gpt-6-sol` | `opus` |
-| `ui-designer` | Visual design specification for substantial UI work | `gpt-6-sol` | `opus` |
+| `spec-designer` | Requirements and technical design | `gpt-6.1-sol` | `opus` |
+| `rubber-duck` | Independent PRD peer review (PASS/CONCERNS) | `gpt-6.1-sol` | `opus` |
+| `ui-designer` | Visual design specification for substantial UI work | `gpt-6.1-sol` | `opus` |
 | `developer` | Implements planned changes and fixes test or review failures | `gpt-5.6-terra` | `sonnet` |
 | `tester` | Authors and runs tests and verifies requirements (PASS/FAIL) | `gpt-5.6-terra` | `sonnet` |
-| `final-reviewer` | Read-only holistic final review | `gpt-6-sol` | `opus` |
+| `final-reviewer` | Read-only holistic final review | `gpt-6.1-sol` | `opus` |
 
 Codex names these agents with underscores (`rubber_duck`, `final_reviewer`); Claude Code
 uses the hyphenated names shown.

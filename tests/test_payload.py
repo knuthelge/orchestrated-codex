@@ -21,11 +21,11 @@ from orchestrated import cli
 EXPECTED_MODELS = {
     "developer": "gpt-5.6-terra",
     "discovery": "gpt-6-luna",
-    "final_reviewer": "gpt-6-sol",
-    "rubber_duck": "gpt-6-sol",
-    "spec_designer": "gpt-6-sol",
+    "final_reviewer": "gpt-6.1-sol",
+    "rubber_duck": "gpt-6.1-sol",
+    "spec_designer": "gpt-6.1-sol",
     "tester": "gpt-5.6-terra",
-    "ui_designer": "gpt-6-sol",
+    "ui_designer": "gpt-6.1-sol",
 }
 READ_ONLY_AGENTS = {"discovery", "final_reviewer", "rubber_duck"}
 WRITE_AGENTS = {"spec_designer", "ui_designer", "developer", "tester"}
@@ -187,11 +187,11 @@ class CodexDeliverySkillTests(DeliverySkillTests, unittest.TestCase):
         self.assertIn("A timeout alone does not mean a subagent is stalled.", normalized)
 
     def test_body_contains_model_routing(self) -> None:  # SC-7
-        for model in ("gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna"):
+        for model in ("gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"):
             self.assertIn(model, self.body)
         normalized = " ".join(self.body.split())
         self.assertIn(
-            "`gpt-6-sol` for demanding planning, design, and holistic review "
+            "`gpt-6.1-sol` for demanding planning, design, and holistic review "
             "(`final_reviewer`, `rubber_duck`, `spec_designer`, and `ui_designer`)",
             normalized,
         )
